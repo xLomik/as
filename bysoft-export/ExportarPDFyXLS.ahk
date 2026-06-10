@@ -26,7 +26,7 @@ PDF_DOWN       := 1                         ; flechas ABAJO hasta "Documento PDF
 XLS_DOWN       := 6                         ; flechas ABAJO hasta "Documento XLS" (6to item)
 OPCIONES_TITLE := "Opciones de Exportación" ; dialogo de opciones (Aceptar)
 GUARDAR_TITLE  := "Guardar como"           ; dialogo de guardado de Windows
-INI            := A_ScriptDir "\pdf2xls.ini"; recuerda la ultima carpeta
+INI            := A_ScriptDir . "\pdf2xls.ini"   ; recuerda la ultima carpeta
 ; ============================================================
 
 ; El atajo SOLO funciona cuando la Vista previa esta activa.
@@ -46,14 +46,14 @@ DobleExport() {
 
     ; Selector de carpeta (arranca en la ultima usada)
     ultima := IniRead(INI, "cfg", "ultimaCarpeta", "")
-    carpeta := DirSelect("*" ultima, 3, "Elige la carpeta donde guardar " nombre ".pdf y .xls")
+    carpeta := DirSelect(ultima, 1, "Elige la carpeta donde guardar " . nombre . ".pdf y .xls")
     if (carpeta = "")
         return
     carpeta := RTrim(carpeta, "\")
     IniWrite(carpeta, INI, "cfg", "ultimaCarpeta")
 
-    rutaPDF := carpeta "\" nombre ".pdf"
-    rutaXLS := carpeta "\" nombre ".xls"
+    rutaPDF := carpeta . "\" . nombre . ".pdf"
+    rutaXLS := carpeta . "\" . nombre . ".xls"
 
     ; ---------- PDF ----------
     if !AbrirFormato(PDF_DOWN)
@@ -87,7 +87,7 @@ AbrirFormato(down) {
         WinActivate(PREVIEW_TITLE)
     Sleep 120
     CoordMode "Mouse", "Window"
-    Click EXPORT_BTN_X, EXPORT_BTN_Y    ; despliega "Exportar como"
+    Click EXPORT_BTN_X " " EXPORT_BTN_Y   ; despliega "Exportar como"
     Sleep 300
     if (down > 0)
         Send "{Down " down "}"
