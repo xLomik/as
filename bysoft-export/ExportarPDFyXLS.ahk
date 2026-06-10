@@ -25,7 +25,7 @@ EXPORT_BTN_Y   := 70                       ; Y del boton "Exportar como"
 PDF_DOWN       := 1                         ; flechas ABAJO hasta "Documento PDF" (1er item)
 XLS_DOWN       := 6                         ; flechas ABAJO hasta "Documento XLS" (6to item)
 OPCIONES_TITLE := "Opciones de Exportación" ; dialogo de opciones (Aceptar)
-GUARDAR_TITLE  := "Guardar como"           ; dialogo de guardado de Windows
+GUARDAR_TITLE  := "Exportar como"          ; OJO: el dialogo de guardado se llama "Exportar como" (no "Guardar como")
 INI            := A_ScriptDir . "\pdf2xls.ini"   ; recuerda la ultima carpeta
 ; ============================================================
 
