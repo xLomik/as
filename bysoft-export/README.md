@@ -34,12 +34,13 @@ El script necesita saber dónde está el botón **"Exportar como"** en tu pantal
 2. En BySoft, abre la **Vista previa** del trabajo.
 3. Pulsa **Ctrl+Alt+E**.
 4. Escribe el nombre (ej. `LP0626652`) → Enter.
-5. En el **primer** "Guardar como": navega a la carpeta del trabajo y pulsa
-   **Guardar** (el nombre ya está escrito).
-6. El **XLS** se guarda **solo** en esa misma carpeta. ✅
+5. Se abre un **selector de carpeta**: elige la carpeta de la solicitud
+   (la nueva que creaste). Arranca en la última que usaste. → Aceptar.
+6. El script guarda **PDF y XLS solos** en esa carpeta. ✅ **No navegas** los
+   diálogos de "Guardar como".
 
-Resultado: `LP0626652.pdf` y `LP0626652.xls` juntos, con un atajo y una sola
-navegación de carpeta.
+Resultado: `LP0626652.pdf` y `LP0626652.xls` juntos, con un atajo, un nombre y
+un clic de carpeta.
 
 ---
 
@@ -61,9 +62,13 @@ Cambiar el atajo: la línea `^!e::DobleExport()` → `^!e` = Ctrl+Alt+E.
 
 ---
 
-## Próximo paso: carpeta automática (opcional)
+## Por qué selector de carpeta (y no automático por número)
 
-Hoy navegas a la carpeta **una vez** por trabajo. Si tu carpeta se puede
-**deducir del número** (ej. `LP0626652` → siempre la misma ruta por una regla),
-el script puede ir **directo** sin que navegues. Para eso hace falta tu
-estructura de carpetas. Compártela y lo activamos.
+La carpeta de cada solicitud **no se deduce del número** `LP`/`LD`: tu
+estructura es por solicitud (`43-RQI-41182;...`) → espesor/material
+(`4.5 SAEJ 060`) → a veces `PROGRAMAS LASER`. El número es el nombre del
+programa, no de la carpeta. Por eso el script usa un **selector** que recuerda
+la última carpeta: eliges la nueva con un clic y listo.
+
+Posible mejora futura: que el selector **sugiera la carpeta recién creada**
+(la más reciente bajo la raíz LASER). Se puede agregar si lo quieres.

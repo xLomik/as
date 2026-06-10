@@ -7,26 +7,29 @@ SetKeyDelay 30
 ;  Exportar PDF + XLS de BySoft con UN solo atajo
 ;  Atajo por defecto: Ctrl+Alt+E  (con la "Vista previa" abierta)
 ;
-;  Qué hace:
-;   1. Te pide el nombre del trabajo UNA vez (ej. LP0626652)
-;   2. Exporta a PDF  -> tú eliges la carpeta y pulsas Guardar (1 vez)
-;   3. Exporta a XLS  -> se guarda SOLO en esa misma carpeta
+;  Flujo:
+;   1. Pide el nombre del trabajo UNA vez (ej. LP0626652)
+;   2. Abre un SELECTOR DE CARPETA -> eliges la carpeta de la solicitud
+;      (recuerda la ultima usada)
+;   3. Exporta a PDF y a XLS, guardando AMBOS en esa carpeta, con ese
+;      nombre, SIN que navegues los dialogos de "Guardar como".
 ;
-;  >>> ANTES DE USAR: calibra la posición del botón "Exportar como"
-;      con Calibrar.ahk (ver README) y pega los valores aquí abajo. <<<
+;  >>> ANTES DE USAR: calibra la posicion del boton "Exportar como"
+;      con Calibrar.ahk (ver README) y pega los valores aqui abajo. <<<
 ; ============================================================
 
-; ===================== CONFIGURACIÓN ========================
-PREVIEW_TITLE  := "Vista previa"          ; título de la ventana de BySoft
-EXPORT_BTN_X   := 1130                     ; X del botón "Exportar como" (RELATIVA a la ventana)
-EXPORT_BTN_Y   := 70                       ; Y del botón "Exportar como"
-PDF_DOWN       := 1                         ; flechas ABAJO hasta "Documento PDF" (1er ítem)
-XLS_DOWN       := 6                         ; flechas ABAJO hasta "Documento XLS" (6º ítem)
-OPCIONES_TITLE := "Opciones de Exportación" ; diálogo de opciones (Aceptar)
-GUARDAR_TITLE  := "Guardar como"           ; diálogo de guardado de Windows
+; ===================== CONFIGURACION ========================
+PREVIEW_TITLE  := "Vista previa"          ; titulo de la ventana de BySoft
+EXPORT_BTN_X   := 1130                     ; X del boton "Exportar como" (RELATIVA a la ventana)
+EXPORT_BTN_Y   := 70                       ; Y del boton "Exportar como"
+PDF_DOWN       := 1                         ; flechas ABAJO hasta "Documento PDF" (1er item)
+XLS_DOWN       := 6                         ; flechas ABAJO hasta "Documento XLS" (6to item)
+OPCIONES_TITLE := "Opciones de Exportación" ; dialogo de opciones (Aceptar)
+GUARDAR_TITLE  := "Guardar como"           ; dialogo de guardado de Windows
+INI            := A_ScriptDir "\pdf2xls.ini"; recuerda la ultima carpeta
 ; ============================================================
 
-; El atajo SOLO funciona cuando la Vista previa está activa.
+; El atajo SOLO funciona cuando la Vista previa esta activa.
 #HotIf WinActive(PREVIEW_TITLE)
 ^!e::DobleExport()
 #HotIf
@@ -41,41 +44,43 @@ DobleExport() {
         return
     nombre := Trim(ib.Value)
 
-    ; ---------- 1) PDF (eliges carpeta + Guardar) ----------
+    ; Selector de carpeta (arranca en la ultima usada)
+    ultima := IniRead(INI, "cfg", "ultimaCarpeta", "")
+    carpeta := DirSelect("*" ultima, 3, "Elige la carpeta donde guardar " nombre ".pdf y .xls")
+    if (carpeta = "")
+        return
+    carpeta := RTrim(carpeta, "\")
+    IniWrite(carpeta, INI, "cfg", "ultimaCarpeta")
+
+    rutaPDF := carpeta "\" nombre ".pdf"
+    rutaXLS := carpeta "\" nombre ".xls"
+
+    ; ---------- PDF ----------
     if !AbrirFormato(PDF_DOWN)
         return
     PulsarOpcionesSiAparece()
-    if !WinWait(GUARDAR_TITLE, , 12) {
-        MsgBox "No apareció 'Guardar como' para el PDF.`n`nRevisa EXPORT_BTN_X/Y y PDF_DOWN en la configuración.",
+    if !GuardarComo(rutaPDF) {
+        MsgBox "No se pudo guardar el PDF.`nRevisa EXPORT_BTN_X/Y y PDF_DOWN.",
                "Exportar PDF + XLS", "Iconx"
         return
     }
-    WinActivate(GUARDAR_TITLE)
-    PonerNombre(nombre . ".pdf")
-    A_Clipboard := nombre           ; por si necesitas pegarlo
-    ToolTip("PASO 1/2  ->  navega a la carpeta del trabajo y pulsa GUARDAR`n(el nombre ya está puesto)")
-    WinWaitClose(GUARDAR_TITLE)     ; espera a que TÚ guardes el PDF
-    ToolTip()
 
-    ; ---------- 2) XLS (automático, misma carpeta) ----------
+    ; ---------- XLS ----------
     if !AbrirFormato(XLS_DOWN)
         return
     PulsarOpcionesSiAparece()
-    if !WinWait(GUARDAR_TITLE, , 12) {
-        MsgBox "No apareció 'Guardar como' para el XLS.`n`nRevisa XLS_DOWN en la configuración.",
+    if !GuardarComo(rutaXLS) {
+        MsgBox "No se pudo guardar el XLS.`nRevisa XLS_DOWN.",
                "Exportar PDF + XLS", "Iconx"
         return
     }
-    WinActivate(GUARDAR_TITLE)
-    PonerNombre(nombre . ".xls")
-    Sleep 200
-    Send "{Enter}"                  ; guarda solo, en la misma carpeta del PDF
-    ToolTip("Listo:  " . nombre . ".pdf  +  " . nombre . ".xls")
-    SetTimer(() => ToolTip(), -2800)
+
+    ToolTip("Listo:`n" rutaPDF "`n" rutaXLS)
+    SetTimer(() => ToolTip(), -3500)
 }
 
 
-; Abre el menú "Exportar como" y elige el formato por índice (flechas abajo).
+; Abre el menu "Exportar como" y elige el formato por indice (flechas abajo).
 AbrirFormato(down) {
     global PREVIEW_TITLE, EXPORT_BTN_X, EXPORT_BTN_Y
     if !WinActive(PREVIEW_TITLE)
@@ -85,14 +90,14 @@ AbrirFormato(down) {
     Click EXPORT_BTN_X, EXPORT_BTN_Y    ; despliega "Exportar como"
     Sleep 300
     if (down > 0)
-        Send "{Down " . down . "}"
+        Send "{Down " down "}"
     Sleep 150
     Send "{Enter}"
     return true
 }
 
 
-; Si aparece "Opciones de Exportación XLS/PDF", pulsa Aceptar (Enter).
+; Si aparece "Opciones de Exportacion XLS/PDF", pulsa Aceptar (Enter).
 PulsarOpcionesSiAparece() {
     global OPCIONES_TITLE
     if WinWait(OPCIONES_TITLE, , 2) {
@@ -104,15 +109,27 @@ PulsarOpcionesSiAparece() {
 }
 
 
-; Escribe el nombre de archivo en el diálogo "Guardar como".
-PonerNombre(archivo) {
+; Escribe la RUTA COMPLETA en "Guardar como" y guarda (sin navegar a mano).
+GuardarComo(rutaCompleta) {
     global GUARDAR_TITLE
+    if !WinWait(GUARDAR_TITLE, , 12)
+        return false
+    WinActivate(GUARDAR_TITLE)
+    Sleep 200
+    ; El campo "Nombre" de Windows acepta una ruta absoluta y guarda alli.
     try {
-        ControlSetText archivo, "Edit1", GUARDAR_TITLE
+        ControlSetText rutaCompleta, "Edit1", GUARDAR_TITLE
     } catch {
-        ; Respaldo: enfocar el campo y escribir
-        try ControlFocus "Edit1", GUARDAR_TITLE
+        ControlFocus "Edit1", GUARDAR_TITLE
         Send "^a"
-        SendText archivo
+        SendText rutaCompleta
     }
+    Sleep 200
+    Send "{Enter}"
+    ; Confirmacion de sobrescritura, si el archivo ya existe.
+    Sleep 350
+    if (WinExist("Confirmar Guardar como") || WinExist("Confirm Save As"))
+        Send "{Enter}"
+    WinWaitClose(GUARDAR_TITLE, , 8)
+    return true
 }
