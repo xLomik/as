@@ -1,5 +1,6 @@
 # Genera PRUEBAS_BYSOFT.zip con todo lo necesario para la prueba completa:
-# DXF de prueba (formato BySoft), .pis listo, Excel sin encabezado, .bat y LEEME.
+# DXF de prueba (formato BySoft), .pis listo, Excel sin encabezado, BySoftCarpeta
+# (crea carpetas con la API de BySoft), .bat y LEEME.
 # Uso: python generar_zip.py
 import re, zipfile
 from pathlib import Path
@@ -8,12 +9,12 @@ from openpyxl import Workbook
 HERE = Path(__file__).parent
 SAMPLE = HERE / "plantilla_bysoft.dxf"      # DXF exportado por BySoft (hcmf75423_r0)
 OUT = HERE / "PRUEBAS_BYSOFT.zip"
-CARPETA = "DESARROLLO/PRUEBA_AUTO2"          # carpeta que creara el Part Importer
+CARPETA = "DESARROLLO/PRUEBA_AUTO3"          # la crea BySoftCarpeta con la API de BySoft
 
 # nombre -> (ancho, alto, [(cx, cy, diametro), ...], cantidad)
 PIEZAS = {
-    "AUTOTEST_A_R0": (120.0, 60.0, [(30.0, 30.0, 20.0)], "2"),
-    "AUTOTEST_B_R0": (90.0, 45.0, [(20.0, 22.5, 10.0), (70.0, 22.5, 10.0)], "3"),
+    "AUTOTEST_C_R0": (120.0, 60.0, [(30.0, 30.0, 20.0)], "2"),
+    "AUTOTEST_D_R0": (90.0, 45.0, [(20.0, 22.5, 10.0), (70.0, 22.5, 10.0)], "3"),
 }
 
 def lwpoly(handle, pts):
@@ -44,7 +45,7 @@ def excel(path):
     wb = Workbook(); ws = wb.active; ws.title = "Piezas"
     # SIN encabezado: BySoft procesa todas las filas y crearia una pieza vacia con el titulo.
     for nombre, (_, _, _, cant) in PIEZAS.items():
-        ws.append([nombre, cant, "PRUEBA_AUTO2", "", "", ""])
+        ws.append([nombre, cant, "PRUEBA_AUTO3", "", "", ""])
     for row in ws.iter_rows():
         for c in row:
             c.number_format = "@"
@@ -58,11 +59,13 @@ def main():
     for n, (w, h, ag, _) in PIEZAS.items():
         (tmp / "dxf" / f"{n}.dxf").write_bytes(dxf(w, h, ag).encode("cp1252"))
     excel(tmp / "importar_en_part_nester.xlsx")
-    pis = (HERE / "prueba_auto2.pis").read_text(encoding="utf-8")
+    pis = (HERE / "prueba_auto3.pis").read_text(encoding="utf-8")
     files = {
         "PRUEBAS_BYSOFT/1-Ejecutar-prueba.bat": (HERE / "Ejecutar-prueba.bat").read_bytes(),
         "PRUEBAS_BYSOFT/LEEME.txt": (HERE / "LEEME.txt").read_bytes(),
-        "PRUEBAS_BYSOFT/config/prueba_auto2.pis": pis.encode("utf-8"),
+        "PRUEBAS_BYSOFT/config/prueba_auto3.pis": pis.encode("utf-8"),
+        "PRUEBAS_BYSOFT/herramienta/BySoftCarpeta.cs": (HERE / "BySoftCarpeta.cs").read_bytes(),
+        "PRUEBAS_BYSOFT/herramienta/BySoftCarpeta.exe": (HERE / "BySoftCarpeta.exe").read_bytes(),
         "PRUEBAS_BYSOFT/2-importar_en_part_nester.xlsx": (tmp / "importar_en_part_nester.xlsx").read_bytes(),
     }
     for n in PIEZAS:

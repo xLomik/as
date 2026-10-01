@@ -256,3 +256,13 @@ Observado en la prueba TEST_AUTO: el job tiene 3 filas ("Part name", TEST_AUTO_0
 - PENDIENTE: comprobar si BySoft (Abrir pieza / Excel del Part Nester) ve `PRUEBA_AUTO2` y sus piezas **sin "Actualizar índice"**. Si no las ve, plan B: crear la carpeta con `FolderInfo.CreateSubfolder` desde las DLL de BySoft.
 - **Resultado (diálogo Abrir de BySoft, sin actualizar el índice): `PRUEBA_AUTO` (creada con CreateSubfolder) SÍ aparece; `PRUEBA_AUTO2` (creada con mkdir) NO aparece.** CONFIRMADO: una carpeta creada con mkdir no entra en el índice. La herramienta debe crear las carpetas con `FolderInfo.CreateSubfolder` (Bystronic.BySoft.Common.Persistence.dll).
 - PENDIENTE: saber si las **piezas** guardadas por PartImporter en esa carpeta sí quedaron indexadas (búsqueda por nombre / Excel del Part Nester).
+
+---
+
+# Ronda 10: crear carpetas con la API de persistencia (Bystronic.BySoft.Common.Persistence.dll)
+
+- `FolderInfo.CreateSubfolder(nombre)` = `DirectoryInfo.CreateSubdirectory` + `index.InsertFolder(LocalPath)`. CONFIRMADO en el código.
+- El índice es **SQLite** (`index.db`), con las tablas `FolderInfo(FolderId, PathUC, Path, ParentId)` y `ObjectInfo(Guid, FolderId, TypeName, Name, ...)`. Si `VirtualRoot.IndexServiceHost` está configurado, usa un índice remoto (`RemoteIndex`/`IndexServiceClient`) en lugar del archivo.
+- `IndexDb.InsertObject` busca el `FolderId` de la carpeta. Si la carpeta no está en el índice, la pieza se inserta **sin carpeta (FolderId 0)**. Por eso las piezas AUTOTEST_A/B quedaron **huérfanas** en el índice.
+- `PersistenceManager.GetRootFolder("Parts")` permite obtener la raíz por nombre, sin depender del tipo `Part`.
+- Herramienta `BySoftCarpeta` (C# 5, .NET Framework 4.7.2): carga las DLL de BySoft desde la carpeta de instalación (`AssemblyResolve`), se configura igual que PartImporter (`exe.config` copiado de `PartImporter.exe.config` + `%APPDATA%\Bystronic\BySoftCam\Common.config`) y recorre la ruta: `ExistsFolder` → `GetFolderFromLocalPath`, o `CreateSubfolder`. Si el directorio ya existe en disco pero no en el índice, solo lo registra. Compila con Roslyn contra las referencias de net472 y la DLL real. En el PC no está probada.
