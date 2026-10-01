@@ -130,3 +130,49 @@ Requisitos: **las piezas deben existir ya en la base de datos de piezas**, y las
 2. **Herramienta propia** (lo único que hay que programar): leer el Excel del usuario (referencia + cantidad), comprobar que cada referencia existe en la base de piezas y generar el **Excel con el formato de BySoft** (columnas A–G, con la ruta correcta en A).
 3. **Part Nester**: Nuevo job (nombre, desde una plantilla) → Nueva pieza → Importar piezas desde archivo → nestear → guardar.
 4. Opcional: automatizar los clics de los pasos 1 y 3 con AutoHotkey, como `bysoft-export`.
+
+---
+
+# Ronda 4: línea de comandos de PartImporter (CONFIRMADO al leer el código)
+
+Fuente: PartImporter.exe 1.0.0.18 y Bystronic.BySoft.Pmc.PartImporterLib.dll, descompilados solo para saber cómo darle órdenes al programa (interoperabilidad). El código de Bystronic **no** se sube a este repositorio.
+
+## Sintaxis
+
+Si el programa recibe cualquier argumento, entra en **modo silencioso**: no abre ninguna ventana.
+Los parámetros llevan **`=` pegado, sin espacio**, y deben escribirse **en minúsculas**:
+
+| Parámetro | Uso |
+|---|---|
+| `-s=<archivo.pis>` | Configuración de importación (XML). Si no existe, sale con código 10 |
+| `-dir=<carpeta>` | Importa todos los archivos admitidos de la carpeta **y de sus subcarpetas** |
+| `-file=<archivo>` | Importa un solo archivo |
+| `-list=<txt>` | Importa una lista de rutas (una por línea, ASCII) |
+| `-log=<archivo>` | Escribe un registro de la importación |
+
+Ejemplo: `PartImporter.exe "-s=C:\x\prueba.pis" "-dir=C:\x\dxf" "-log=C:\x\log.txt"`
+
+Las pruebas anteriores (`-dir "..."`, con espacio) devolvían 1, que significa "Wrong or missing program parameter". Explicado.
+
+## Códigos de salida
+
+| Código | Significado |
+|---|---|
+| 0 | OK |
+| 1 | Sin licencia (`bsc_cut_and_bend` + `bsc_launch`) **o** parámetros incorrectos |
+| 2 | Hubo errores al importar (ver el log) |
+| 3 | No se pudo crear el importador |
+| 10 / 11 | El `.pis` no existe / no se pudo leer |
+| 20 | `-file`: el archivo no existe. Un valor negativo indica que BySoft lo importó con otro nombre (ver `ImportSingleFile`) |
+| 30 / 31 | `-dir`: la carpeta no existe / no hay archivos admitidos |
+| 40 / 41 / 42 | `-list`: el txt no existe / está vacío / hubo una excepción |
+
+Los mensajes de texto se escriben con `Console.WriteLine`, pero como es una aplicación de ventanas no se ven en cmd. Hay que fiarse del **código de salida y del log**.
+
+## Cómo guarda las piezas
+
+- **Nombre de la pieza = nombre del archivo sin extensión** (`Path.GetFileNameWithoutExtension`). La columna A del Excel coincide con el nombre del DXF.
+- Se guardan en la base de piezas, en la subcarpeta `SavePathRelative` del `.pis`.
+- Conflictos (`HandleFileConflicts` del `.pis`): `Ignore` (deja la pieza que ya existe), `Overwrite` (la sobrescribe) o `Indexing` (crea otro nombre con un índice, lo que **rompe** la correspondencia con el Excel). Para automatizar conviene Ignore u Overwrite.
+- La ruta de la base sale de `PartImporter.exe.config` + `%APPDATA%\Bystronic\BySoftCam\Common.config`, la configuración del usuario. Esto explica por qué `C:\BystronicData\BySoftCam\Parts` casi no tiene piezas.
+- El `.pis` es XML (`ImportSettings`): material (GUID), espesor, máquina, regla de corte, tecnología, nesting, `SavePathRelative`, `HandleFileConflicts`, campos de datos, etc.
