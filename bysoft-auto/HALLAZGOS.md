@@ -216,3 +216,19 @@ Ejemplos: `DESARROLLO\108. Ref.10510104935\4.5 HARDOX-450`, `DESARROLLO\111. Ref
 - **Formato de `.pis` CONFIRMADO**: XML con atributos en `<ImportSettings ...>`. La carpeta de destino es el **atributo** `SavePathRelative="/DESARROLLO/PRUEBA_AUTO/"`, con **barras normales** al principio y al final. Los demás atributos: `MaterialGuid`, `Thickness`, `CuttingMachineGuid`, `CuttingRuleGuid`, `NcParameterFile`, `CuttingGasTypeGuid`, `MoveToOrigin`, `AutoRotation`… `HandleFileConflicts` **no aparece**, así que se aplica el valor por defecto `Ignore`.
 - Importación por línea de comandos: código 0, pero el log dice "Ya existe un archivo para la pieza X -> ¡La pieza no se tiene en cuenta!". En `PRUEBA_AUTO` hay `.box`. Probablemente se importaron antes desde la interfaz. Según el código, si el índice exige **nombres únicos**, la búsqueda de duplicados recorre **toda la base** (también las piezas de la raíz). HIPÓTESIS: los nombres de pieza deben ser únicos en toda la base.
 - **Part Nester → Importar piezas desde archivo**: error `No se puede convertir un objeto de tipo 'System.Double' al tipo 'System.String'` en `PartNesterModulesHelper.Commands.Data.NestPartCmd.ProcessExcelRow`. Alguna celda numérica (casi seguro la cantidad) se convierte con un cast a string. Siguiente prueba: un Excel con **todas las celdas como texto**.
+
+---
+
+# Ronda 7: lector de Excel del Part Nester (CONFIRMADO al leer el código)
+
+Fuente: `Bystronic.BySoft.ModulesHelper.PartNesterModulesHelper.dll` (`NestPartCmd.ReadExcelFile` / `ProcessExcelRow`, `ExcelMaterialListImportHelper`).
+
+- Abre el `.xlsx` con **Excel por COM**, así que Excel tiene que estar instalado. Lee la **hoja activa** y su `UsedRange`, **todas las filas**. La fila de encabezado también se procesa: se le busca pieza y no se encuentra.
+- Columna A: `Value2.ToString()`, acepta cualquier tipo.
+- **Columna B (cantidad): `(string)Value2` + `int.TryParse`.** Si la celda es numérica, el cast lanza el error `Double → String`. **La cantidad tiene que ser TEXTO.** Si no se puede convertir, se toma 0.
+- Columnas C–F: `(string)Value2`. Tienen que ser texto o estar vacías.
+- **La columna G (color) no se lee** desde un archivo.
+- Búsqueda de la pieza (`CheckPartsImport` / `GetPartFromFullPathInBySoft`):
+  - **Sin carpeta** (solo el nombre): `GetObjectInfos<Part>(nombre)`. Si hay **más de 1** pieza con ese nombre en toda la base, da el error "piezas repetidas".
+  - **Con carpeta**: se toma `Path.GetDirectoryName`, se quita la raíz física y la `\` inicial, y se busca en `"/" + carpeta + "/"`. **Las `\` interiores no se convierten a `/`**, así que una ruta de 2 o más niveles (`DESARROLLO\PRUEBA_AUTO`) se busca como `/DESARROLLO\PRUEBA_AUTO/` y **no se encuentra**. El ejemplo del manual (`AU20\Sort_Part_01`) tiene un solo nivel. MUY PROBABLE que sea un bug de BySoft para rutas de varios niveles. `GetDirectoryName` también convierte `/` en `\`, así que ninguna variante lo evita.
+- **Conclusión de diseño**: la columna A lleva **solo el nombre** de la pieza. La herramienta debe garantizar que el nombre sea **único** en Parts-FANALCA, comprobándolo antes de generar el Excel. Todas las celdas se escriben como texto.
