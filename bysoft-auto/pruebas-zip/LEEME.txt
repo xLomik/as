@@ -1,0 +1,53 @@
+PRUEBA COMPLETA BYSOFT - IMPORTACION AUTOMATICA
+================================================
+
+Que prueba:
+  A. Que el Part Importer, por linea de comandos, CREE SOLO la carpeta
+     DESARROLLO\PRUEBA_AUTO2 en Parts-FANALCA y guarde ahi las piezas,
+     sin crearla a mano con el Explorador.
+  B. Que BySoft vea esa carpeta y las piezas SIN "Actualizar indice".
+  C. Que el Part Nester cargue las piezas con sus cantidades desde Excel.
+
+Contenido:
+  1-Ejecutar-prueba.bat           -> hace los pasos A automaticamente
+  2-importar_en_part_nester.xlsx  -> Excel para el paso C
+  config\prueba_auto2.pis          -> tu prueba2.pis, solo cambia la carpeta
+                                     destino a /DESARROLLO/PRUEBA_AUTO2/
+  dxf\AUTOTEST_A_R0.dxf            -> 120 x 60 mm, 1 agujero de 20 mm
+  dxf\AUTOTEST_B_R0.dxf            -> 90 x 45 mm, 2 agujeros de 10 mm
+
+PASOS
+-----
+1. Descomprime el ZIP en el Escritorio (no lo ejecutes desde dentro del ZIP).
+
+2. Doble clic en 1-Ejecutar-prueba.bat
+   - Comprueba archivos y que AUTOTEST_* no exista ya en la base.
+   - Te pide cerrar el Part Importer y pulsar una tecla.
+   - Importa los 2 DXF y verifica que llegaron a DESARROLLO\PRUEBA_AUTO2.
+   - Debe terminar con "RESULTADO: OK".
+
+3. En BySoft, SIN actualizar indice:
+   - Part Editor > Abrir la pieza: busca AUTOTEST_A_R0.
+   - Anota: aparece la carpeta PRUEBA_AUTO2? aparecen las 2 piezas
+     con su dibujo?
+
+4. Part Nester > Nuevo Job
+   - Nombre: PRUEBA_AUTO2, material y espesor iguales al .pis (2 mm).
+   - Datos > Pieza > Nueva pieza > Importar piezas desde archivo
+   - Elige 2-importar_en_part_nester.xlsx
+   - Deben aparecer: AUTOTEST_A_R0 cantidad 2 y AUTOTEST_B_R0 cantidad 3,
+     CON dibujo. Sin fila "Part name" (el Excel ya no tiene encabezado).
+
+5. Envia:
+   - resultado.txt
+   - captura de la pieza abierta del paso 3
+   - captura de la pestana Piezas del job del paso 4
+
+IMPORTANTE
+----------
+- Si el Excel menciona una pieza que NO existe, BySoft crea una pieza
+  VACIA con ese nombre en la base sin avisar. Por eso el paso 2 verifica
+  antes y el Excel solo lleva piezas que se acaban de importar.
+- Limpieza al terminar (desde BySoft, no desde el Explorador):
+  borrar AUTOTEST_A_R0, AUTOTEST_B_R0, la pieza vacia "Part name",
+  las vacias TEST_AUTO_01 / TEST_AUTO_02 y los jobs de prueba.
