@@ -1,8 +1,8 @@
 @echo off
 REM ===================================================================
 REM  Prueba completa BySoft - importacion automatica de DXF
-REM  NO crea carpetas a mano: deja que el Part Importer cree
-REM  DESARROLLO\PRUEBA_AUTO2 y registre las piezas en BySoft.
+REM  Crea DESARROLLO\PRUEBA_AUTO2 (el Part Importer NO la crea) y luego
+REM  importa: las piezas las guarda BySoft, que actualiza su indice.
 REM  Resultado: resultado.txt en esta carpeta.
 REM ===================================================================
 setlocal
@@ -59,14 +59,21 @@ if not "%NPREV%"=="0" (
 echo OK, no existen
 
 echo.
-echo ===== PASO 3 de 5: estado de la carpeta destino ANTES =====
+echo ===== PASO 3 de 5: preparar carpeta destino =====
 if exist "%PARTS%\%REL%\" (
   echo La carpeta %REL% YA existe
   >>"%OUT%" echo Carpeta destino antes: EXISTIA
 ) else (
-  echo La carpeta %REL% NO existe - la debe crear el Part Importer
+  echo La carpeta %REL% NO existe - se crea ahora
   >>"%OUT%" echo Carpeta destino antes: NO EXISTIA
+  mkdir "%PARTS%\%REL%"
 )
+if not exist "%PARTS%\%REL%\" (
+  echo ERROR: no se pudo crear la carpeta destino
+  >>"%OUT%" echo ERROR: no se pudo crear la carpeta destino
+  goto fin
+)
+>>"%OUT%" echo Carpeta destino lista antes de importar
 
 echo.
 echo ===== PASO 4 de 5: importar DXF con el Part Importer =====

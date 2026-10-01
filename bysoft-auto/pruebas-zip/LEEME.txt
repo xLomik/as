@@ -2,10 +2,11 @@ PRUEBA COMPLETA BYSOFT - IMPORTACION AUTOMATICA
 ================================================
 
 Que prueba:
-  A. Que el Part Importer, por linea de comandos, CREE SOLO la carpeta
-     DESARROLLO\PRUEBA_AUTO2 en Parts-FANALCA y guarde ahi las piezas,
-     sin crearla a mano con el Explorador.
-  B. Que BySoft vea esa carpeta y las piezas SIN "Actualizar indice".
+  A. (Primera version confirmo que el Part Importer NO crea carpetas.)
+     El .bat crea DESARROLLO\PRUEBA_AUTO2 y el Part Importer guarda ahi
+     las piezas. Al guardarlas BySoft, deberian quedar en su indice.
+  B. Que BySoft vea esa carpeta y las piezas SIN "Actualizar indice"
+     (la clave: que NO haga falta releer toda la raiz).
   C. Que el Part Nester cargue las piezas con sus cantidades desde Excel.
 
 Contenido:
@@ -22,6 +23,7 @@ PASOS
 
 2. Doble clic en 1-Ejecutar-prueba.bat
    - Comprueba archivos y que AUTOTEST_* no exista ya en la base.
+   - Crea la carpeta DESARROLLO\PRUEBA_AUTO2 si no existe.
    - Te pide cerrar el Part Importer y pulsar una tecla.
    - Importa los 2 DXF y verifica que llegaron a DESARROLLO\PRUEBA_AUTO2.
    - Debe terminar con "RESULTADO: OK".
