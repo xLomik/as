@@ -53,3 +53,40 @@ BySoftCAM.exe (pid 10116) y PartImporter.exe (pid 37824). Ninguno escuchaba en u
 ## Limitación del diagnóstico cmd
 
 El filtro de seguridad (`findstr /v "token"`) también eliminó las líneas que contienen `publicKeyToken`. Por eso faltan los nombres de las dependencias (`assemblyIdentity`) en las configuraciones. No es grave.
+
+---
+
+# Ronda 2: diagnóstico PowerShell, carpeta de datos y prueba del ApiService
+
+## Versión
+
+BySoft CAM **1.0.0.18 Release**, "x64 Oro" según la Start View. Todos los `.exe` llevan la versión 1.0.0.18; DwgConverter, la 2.0.0.0.
+
+## ApiService: tiene justo lo necesario, pero requiere licencia
+
+- Al arrancarlo, muestra **"ApiService: ¡No hay ninguna licencia válida!"**. CONFIRMADO.
+- Entre los textos del ejecutable aparecen `ApiServiceAutonestFeature` y `bsc_api_autonest`. Parece una **opción de licencia aparte**. MUY PROBABLE.
+- Por lo que aparece en el ejecutable y en `Bystronic.BySoft.Api.Interface.dll`, la API cubre exactamente el flujo buscado: `ImportPartGeometry(WithImportConfiguration)`, `CreatePartJob`, `AddNestPart` (con `Quantity`), `AddNestSheet`, `Nest`/`CreateNestings`, `SavePartJob`, `DefaultApiPartJobsFolder`. Hay un controlador REST de ASP.NET Core con Swagger (Swashbuckle).
+- Conclusión: con la licencia, el objetivo (carpeta + nombre del nesteo + Excel de cantidades) se podría hacer con llamadas HTTP, sin automatizar la pantalla.
+
+## PartImporter: posible línea de comandos y pestaña de pedido
+
+- Cadenas tipo argumento encontradas: `-dir`, `-log`, `/Endschnitt`. HIPÓTESIS: importación de una carpeta por línea de comandos (hay `ImportDirectory`, `ImportFileList`, `AutoImportFilter`).
+- La configuración se guarda en archivos **`.pis`** (`NewPartImporterSettings.pis`, `TxtFilterPisFiles`).
+- La interfaz tiene pestañas de **Orden/Pedido** (`_tabPageOrder`, `_processOrder`) y de **ajustes de nesting** (`_bsNestingSettings`, `_grpPropNesting`, `_sePropPriority`). También tiene campos `NestPart.OrderInfo`, `NestPart.UserInfo1-3` y `NestSheet.*`. HIPÓTESIS: PartImporter podría crear o alimentar un nesteo al importar.
+- Componentes de soporte: `Bystronic.BySoft.Pmc.PartImporterLib.dll`.
+
+## Otros
+
+- `BySoftCAM.exe`: exporta `job.csv`/`part.csv` (`ExportJobs`, `JobCsvExportPath`). No se encontró una importación de pedidos por CSV.
+- `PartInfoUpdater.exe`: lee CSV/Excel (`ReadCsv`, `ExcelFileFullPath`). Actualiza datos de piezas existentes.
+- `Massmutation.exe`: `/Update` y CSV. Cambios masivos.
+- Hay DLL de integración: `Infrastructure.Integration.CmdLine/Json/Xml/Kafka/Nats` y `Pmc.ErpDataExchange`. Indican vías de integración con ERP que todavía no se han explorado.
+- Hay un módulo **Auto Part** (`Bystronic.BySoft.AutoPart.mod.dll`, raíz `AutoPartProjects`), visible en la interfaz. Sin explorar.
+
+## Carpeta de datos `C:\BystronicData\BySoftCam`
+
+- Cada raíz (`Parts`, `PartJobs`, `System`…) tiene un `index.db`. Hay `System.Data.SQLite.dll` instalada, así que probablemente es un índice SQLite. HIPÓTESIS.
+- En `Parts` hay **un solo** `.box` (+ `.png`). Sin embargo, la Start View muestra muchas piezas y jobs. Conclusión: BySoft guarda piezas y jobs **donde elige el usuario** (por ejemplo, junto a los DXF) y el `index.db` lleva el registro. MUY PROBABLE.
+- `System` contiene máquinas, materiales y costes como `.box`. La tecnología de corte está en `.PAR` (354 archivos) y `.cuttingrulesetx`.
+- El `.box` es el formato general de objeto del PersistenceManager (piezas, máquinas, materiales, plantillas). Esto **refuerza la decisión de no fabricar `.box`** a mano: dependen del sistema, del índice y de la tecnología.
