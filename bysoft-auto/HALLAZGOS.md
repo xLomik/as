@@ -232,3 +232,16 @@ Fuente: `Bystronic.BySoft.ModulesHelper.PartNesterModulesHelper.dll` (`NestPartC
   - **Sin carpeta** (solo el nombre): `GetObjectInfos<Part>(nombre)`. Si hay **más de 1** pieza con ese nombre en toda la base, da el error "piezas repetidas".
   - **Con carpeta**: se toma `Path.GetDirectoryName`, se quita la raíz física y la `\` inicial, y se busca en `"/" + carpeta + "/"`. **Las `\` interiores no se convierten a `/`**, así que una ruta de 2 o más niveles (`DESARROLLO\PRUEBA_AUTO`) se busca como `/DESARROLLO\PRUEBA_AUTO/` y **no se encuentra**. El ejemplo del manual (`AU20\Sort_Part_01`) tiene un solo nivel. MUY PROBABLE que sea un bug de BySoft para rutas de varios niveles. `GetDirectoryName` también convierte `/` en `\`, así que ninguna variante lo evita.
 - **Conclusión de diseño**: la columna A lleva **solo el nombre** de la pieza. La herramienta debe garantizar que el nombre sea **único** en Parts-FANALCA, comprobándolo antes de generar el Excel. Todas las celdas se escriben como texto.
+
+---
+
+# Ronda 8: importación del Excel en el Part Nester. Comportamiento peligroso
+
+Código (`ExcelMaterialListImportHelper.LoadNestPartsForAdding`): si **no encuentra** la pieza por nombre, **crea una pieza VACÍA** con ese nombre (`new Part { Name = ... }`), **la guarda en la base de piezas** (`BySoft7DataAccess.SaveNewPart`) y la añade al job. **No avisa.**
+
+Consecuencias:
+- **La fila de encabezado del Excel se procesa como una pieza**, así que se crea una pieza vacía "Part name" en la base. Observado: el job mostró una fila "Part name". **El Excel generado NO debe llevar encabezado.**
+- Una referencia mal escrita, o una pieza que todavía no se ha importado, crea una pieza vacía en la base. Después, esa pieza vacía **duplica el nombre** cuando se importe la real y provoca el error "repetidas".
+- La herramienta **debe comprobar que cada pieza existe** (y que es única) **antes** de que el Excel llegue a BySoft.
+
+Observado en la prueba TEST_AUTO: el job tiene 3 filas ("Part name", TEST_AUTO_01, TEST_AUTO_02), todas con un indicador rojo. PENDIENTE: saber si TEST_AUTO_01/02 eran las piezas reales o vacías (depende de que el import por línea de comandos se hubiera hecho antes).
