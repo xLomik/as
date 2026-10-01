@@ -176,3 +176,34 @@ Los mensajes de texto se escriben con `Console.WriteLine`, pero como es una apli
 - Conflictos (`HandleFileConflicts` del `.pis`): `Ignore` (deja la pieza que ya existe), `Overwrite` (la sobrescribe) o `Indexing` (crea otro nombre con un índice, lo que **rompe** la correspondencia con el Excel). Para automatizar conviene Ignore u Overwrite.
 - La ruta de la base sale de `PartImporter.exe.config` + `%APPDATA%\Bystronic\BySoftCam\Common.config`, la configuración del usuario. Esto explica por qué `C:\BystronicData\BySoftCam\Parts` casi no tiene piezas.
 - El `.pis` es XML (`ImportSettings`): material (GUID), espesor, máquina, regla de corte, tecnología, nesting, `SavePathRelative`, `HandleFileConflicts`, campos de datos, etc.
+
+---
+
+# Ronda 5: estructura real de la base de piezas y de jobs (red)
+
+Fuente: `Registros-BySoft.bat` ejecutado en las dos raíces. Los listados se cortan a 500 entradas, así que solo se ve parte de DESARROLLO.
+
+| Base | Ruta | Carpetas | Archivos |
+|---|---|---|---|
+| Piezas | `\\fnsrvnas\Planos\PLANOS_DIBUJO_FANALCA\BLANCOS\LASER\BystronicData\BySoftCam\Parts-FANALCA` | 1260 | 7771 (7661 `.box`, 98 `index.db`, 6 `.lock`) |
+| Jobs | `...\BySoftCam\PartJobs-FANALCA` | 1015 | 2401 (2337 `.box`, 47 `index.db`, 12 `.lock`) |
+
+## Convención de carpetas (la crea el usuario a mano)
+
+```
+<Raíz>\{DESARROLLO|PRODUCCION}\<NNN. Proyecto o Ref>\<espesor + material>\pieza.box
+```
+
+Ejemplos: `DESARROLLO\108. Ref.10510104935\4.5 HARDOX-450`, `DESARROLLO\111. Ref 10510096795\6.0 SAEJ 080`, `DESARROLLO\F.2509-078\6.35 mm`, `DESARROLLO\Carrocerias\MAYO 2024 ...\4.5`.
+
+- **La misma estructura se repite en Parts y en PartJobs.**
+- La subcarpeta de espesor y material tiene formato libre: `4.5 HARDOX-450`, `3.42mm SAEJ 050`, `6 mm`, `GR 50; E=3.00mm`. No hay un patrón fijo.
+- Hay `index.db` en la raíz y en algunas subcarpetas. Hay archivos `.lock` sueltos (piezas abiertas o bloqueos huérfanos).
+- La importación de prueba por línea de comandos dejó las 2 piezas de prueba en la **raíz** de Parts-FANALCA, porque el `.pis` tenía `SavePathRelative` vacío. CONFIRMADO.
+
+## Implicaciones para la herramienta
+
+- Crear `<Área>\<Proyecto>\<Espesor Material>` en Parts-FANALCA, y opcionalmente también en PartJobs-FANALCA.
+- Poner `SavePathRelative = <Área>\<Proyecto>\<Espesor Material>` en una copia del `.pis` → PartImporter `-s= -dir=`.
+- Columna A del Excel de BySoft = `<ruta relativa>\<pieza>` (por confirmar en la prueba del Part Nester).
+- PENDIENTE: confirmar que BySoft reconoce las carpetas creadas con el Explorador o por script (no desde BySoft), y cómo aparece `SavePathRelative` escrito en el XML del `.pis`.
