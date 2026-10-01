@@ -4,10 +4,11 @@
 # Resultado: Escritorio\diagnostico-bysoft.txt  (revisalo antes de enviarlo)
 
 $ErrorActionPreference = 'SilentlyContinue'
+Write-Host 'Diagnostico BySoft iniciado...'
 $out = Join-Path ([Environment]::GetFolderPath('Desktop')) 'diagnostico-bysoft.txt'
 $log = New-Object System.Collections.Generic.List[string]
 function W([string]$s) { $log.Add($s) }
-function H([string]$s) { W ''; W ('=' * 70); W $s; W ('=' * 70) }
+function H([string]$s) { Write-Host "  - $s"; W ''; W ('=' * 70); W $s; W ('=' * 70) }
 # Oculta contrasenas en cadenas de conexion / configs
 function Mask([string]$s) {
     $s -replace '(?i)(password|pwd|secret|apikey|api_key|token)\s*([=:])\s*("?)[^;"<\s]+', '$1$2$3****'
@@ -120,5 +121,13 @@ foreach ($d in $exeDirs) {
 H 'DLL INSTALADAS (nombres)'
 foreach ($d in $exeDirs) { (Get-ChildItem $d -Filter '*.dll').Name -join '  ' | ForEach-Object { W $_ } }
 
-$log | Set-Content -Path $out -Encoding UTF8
-Write-Host "Listo: $out"
+try {
+    $log | Set-Content -Path $out -Encoding UTF8 -ErrorAction Stop
+} catch {
+    # Escritorio no escribible (politica / OneDrive): guardar junto al .bat o en Documentos
+    $out = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'diagnostico-bysoft.txt'
+    $log | Set-Content -Path $out -Encoding UTF8
+}
+Write-Host ''
+Write-Host "LISTO. Archivo generado: $out"
+
