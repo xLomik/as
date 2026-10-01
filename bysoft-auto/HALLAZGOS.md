@@ -207,3 +207,12 @@ Ejemplos: `DESARROLLO\108. Ref.10510104935\4.5 HARDOX-450`, `DESARROLLO\111. Ref
 - Poner `SavePathRelative = <Área>\<Proyecto>\<Espesor Material>` en una copia del `.pis` → PartImporter `-s= -dir=`.
 - Columna A del Excel de BySoft = `<ruta relativa>\<pieza>` (por confirmar en la prueba del Part Nester).
 - PENDIENTE: confirmar que BySoft reconoce las carpetas creadas con el Explorador o por script (no desde BySoft), y cómo aparece `SavePathRelative` escrito en el XML del `.pis`.
+
+---
+
+# Ronda 6: Pruebas-BySoft.bat en el entorno real
+
+- Las carpetas `DESARROLLO\PRUEBA_AUTO` se crearon con el script en Parts-FANALCA y PartJobs-FANALCA. OK.
+- **Formato de `.pis` CONFIRMADO**: XML con atributos en `<ImportSettings ...>`. La carpeta de destino es el **atributo** `SavePathRelative="/DESARROLLO/PRUEBA_AUTO/"`, con **barras normales** al principio y al final. Los demás atributos: `MaterialGuid`, `Thickness`, `CuttingMachineGuid`, `CuttingRuleGuid`, `NcParameterFile`, `CuttingGasTypeGuid`, `MoveToOrigin`, `AutoRotation`… `HandleFileConflicts` **no aparece**, así que se aplica el valor por defecto `Ignore`.
+- Importación por línea de comandos: código 0, pero el log dice "Ya existe un archivo para la pieza X -> ¡La pieza no se tiene en cuenta!". En `PRUEBA_AUTO` hay `.box`. Probablemente se importaron antes desde la interfaz. Según el código, si el índice exige **nombres únicos**, la búsqueda de duplicados recorre **toda la base** (también las piezas de la raíz). HIPÓTESIS: los nombres de pieza deben ser únicos en toda la base.
+- **Part Nester → Importar piezas desde archivo**: error `No se puede convertir un objeto de tipo 'System.Double' al tipo 'System.String'` en `PartNesterModulesHelper.Commands.Data.NestPartCmd.ProcessExcelRow`. Alguna celda numérica (casi seguro la cantidad) se convierte con un cast a string. Siguiente prueba: un Excel con **todas las celdas como texto**.
