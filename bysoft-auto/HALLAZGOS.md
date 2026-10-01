@@ -266,3 +266,16 @@ Observado en la prueba TEST_AUTO: el job tiene 3 filas ("Part name", TEST_AUTO_0
 - `IndexDb.InsertObject` busca el `FolderId` de la carpeta. Si la carpeta no está en el índice, la pieza se inserta **sin carpeta (FolderId 0)**. Por eso las piezas AUTOTEST_A/B quedaron **huérfanas** en el índice.
 - `PersistenceManager.GetRootFolder("Parts")` permite obtener la raíz por nombre, sin depender del tipo `Part`.
 - Herramienta `BySoftCarpeta` (C# 5, .NET Framework 4.7.2): carga las DLL de BySoft desde la carpeta de instalación (`AssemblyResolve`), se configura igual que PartImporter (`exe.config` copiado de `PartImporter.exe.config` + `%APPDATA%\Bystronic\BySoftCam\Common.config`) y recorre la ruta: `ExistsFolder` → `GetFolderFromLocalPath`, o `CreateSubfolder`. Si el directorio ya existe en disco pero no en el índice, solo lo registra. Compila con Roslyn contra las referencias de net472 y la DLL real. En el PC no está probada.
+
+---
+
+# Ronda 11: prueba 3 en el PC real. FLUJO COMPLETO CONFIRMADO ✅
+
+- `BySoftCarpeta.exe` (el exe compilado aquí) funcionó en el PC: leyó `Common.config` del usuario y devolvió las bases de red de Parts y PartJobs, que coinciden con las esperadas.
+- Creó `DESARROLLO\PRUEBA_AUTO3` en Parts-FANALCA y PartJobs-FANALCA con `CreateSubfolder`, y **registró en el índice `PRUEBA_AUTO2`** (que se había creado con mkdir).
+- **Abrir pieza, sin "Actualizar índice"**: aparecen `PRUEBA_AUTO2` y `PRUEBA_AUTO3`. `PRUEBA_AUTO3` contiene `AUTOTEST_C_R0` y `AUTOTEST_D_R0`. CONFIRMADO.
+- PartImporter por línea de comandos, con `SavePathRelative="/DESARROLLO/PRUEBA_AUTO3/"`: código 0, las 2 piezas se guardaron. CONFIRMADO.
+- **Part Nester → Importar piezas desde archivo** (sin encabezado, todo texto, solo el nombre): AUTOTEST_C_R0 y AUTOTEST_D_R0 entran con su geometría (miniatura visible). CONFIRMADO. Indicador amarillo/rojo pendiente de interpretar (¿cantidad sin nestear?).
+- La compilación local con csc falló con CS0012: falta `/r:Bystronic.BySoft.Common.dll`. Corregido en el `.bat`. El exe incluido sirvió de respaldo.
+
+Cadena confirmada: **BySoftCarpeta (crear carpeta en Parts y PartJobs) → copia del `.pis` con SavePathRelative → PartImporter -s= -dir= → Excel (nombre, cantidad como texto, sin encabezado) → Part Nester "Importar piezas desde archivo"**.

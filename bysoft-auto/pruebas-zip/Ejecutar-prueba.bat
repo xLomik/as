@@ -50,7 +50,7 @@ set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 >>"%OUT%" echo ==== HERRAMIENTA
 if exist "%CSC%" (
   echo Compilando con el csc de Windows...
-  "%CSC%" /nologo /platform:x64 /out:"%HERR%\BySoftCarpeta_local.exe" /r:System.Configuration.dll /r:"%BYSOFT_DIR%\Bystronic.BySoft.Common.Persistence.dll" "%HERR%\BySoftCarpeta.cs" >>"%OUT%" 2>&1
+  "%CSC%" /nologo /platform:x64 /out:"%HERR%\BySoftCarpeta_local.exe" /r:System.Configuration.dll /r:"%BYSOFT_DIR%\Bystronic.BySoft.Common.Persistence.dll" /r:"%BYSOFT_DIR%\Bystronic.BySoft.Common.dll" "%HERR%\BySoftCarpeta.cs" >>"%OUT%" 2>&1
   if exist "%HERR%\BySoftCarpeta_local.exe" (
     set "TOOL=%HERR%\BySoftCarpeta_local.exe"
     >>"%OUT%" echo Compilada en este PC: BySoftCarpeta_local.exe
