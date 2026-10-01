@@ -245,3 +245,12 @@ Consecuencias:
 - La herramienta **debe comprobar que cada pieza existe** (y que es única) **antes** de que el Excel llegue a BySoft.
 
 Observado en la prueba TEST_AUTO: el job tiene 3 filas ("Part name", TEST_AUTO_01, TEST_AUTO_02), todas con un indicador rojo. PENDIENTE: saber si TEST_AUTO_01/02 eran las piezas reales o vacías (depende de que el import por línea de comandos se hubiera hecho antes).
+
+---
+
+# Ronda 9: ¿quién crea la carpeta destino? (PC real)
+
+- ZIP v1: si `DESARROLLO\PRUEBA_AUTO2` no existe, PartImporter falla con el código 2 ("No se puede encontrar una parte de la ruta…" en `PersistenceManager.DoSave`). **CONFIRMADO: PartImporter NO crea carpetas.**
+- La carpeta `PRUEBA_AUTO` de la ronda 6 la creó el usuario con el botón "Crear nueva carpeta" del Part Importer. Ese botón llama a `FolderInfo.CreateSubfolder` (API de persistencia de BySoft), no a `mkdir`.
+- ZIP v2: el `.bat` crea `PRUEBA_AUTO2` con `mkdir` y después importa. Código 0, las 2 piezas se guardaron (`.box` + `.png`). **CONFIRMADO: se puede importar en una carpeta creada con mkdir.**
+- PENDIENTE: comprobar si BySoft (Abrir pieza / Excel del Part Nester) ve `PRUEBA_AUTO2` y sus piezas **sin "Actualizar índice"**. Si no las ve, plan B: crear la carpeta con `FolderInfo.CreateSubfolder` desde las DLL de BySoft.
