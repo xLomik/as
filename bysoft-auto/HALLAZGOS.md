@@ -90,3 +90,43 @@ BySoft CAM **1.0.0.18 Release**, "x64 Oro" según la Start View. Todos los `.exe
 - En `Parts` hay **un solo** `.box` (+ `.png`). Sin embargo, la Start View muestra muchas piezas y jobs. Conclusión: BySoft guarda piezas y jobs **donde elige el usuario** (por ejemplo, junto a los DXF) y el `index.db` lleva el registro. MUY PROBABLE.
 - `System` contiene máquinas, materiales y costes como `.box`. La tecnología de corte está en `.PAR` (354 archivos) y `.cuttingrulesetx`.
 - El `.box` es el formato general de objeto del PersistenceManager (piezas, máquinas, materiales, plantillas). Esto **refuerza la decisión de no fabricar `.box`** a mano: dependen del sistema, del índice y de la tecnología.
+
+---
+
+# Ronda 3: manual oficial de BySoft CAM 1.0.0
+
+Fuente: copia del sitio onlinehelp.bystronic.com/BySoft_CAM/1.0.0/en (492 páginas).
+
+## CONFIRMADO: Part Nester importa piezas y cantidades desde Excel
+
+Página `PartNester/PAN_FCN_NewPartFile` (y `PAN_FCN_NewPartClipboard` para el portapapeles).
+Ruta: Part Nester > Datos > Pieza > **Nueva pieza** > **Importar piezas desde archivo**.
+
+La primera fila lleva los encabezados (texto libre). Las columnas van **en este orden**:
+
+| Col | Contenido |
+|---|---|
+| A | Nombre de la pieza **o ruta completa a la pieza en la base de datos**. El ejemplo del manual usa una ruta relativa, `AU20\Sort_Part_01` |
+| B | Cantidad |
+| C | Info del pedido |
+| D | Info 1 |
+| E | Info 2 |
+| F | Info 3 |
+| G | Color en hexadecimal (`#FF0000`) |
+
+Requisitos: **las piezas deben existir ya en la base de datos de piezas**, y las columnas tienen que ir en ese orden. Ejemplo: `referencia/formato-excel-importar-piezas.png`.
+
+## Otros datos del manual
+
+- **Import part** (Part Editor) admite varios archivos a la vez. Para importar muchas piezas, el manual remite a la herramienta **Part Importer** ("Bystronic > BySoft CAM > Tools"). La copia del manual no tiene páginas propias de Part Importer ni de Auto Part.
+- Entidades DXF admitidas: ARC, CIRCLE, LINE, LWPOLYLINE, POLYLINE, VERTEX, ELLIPSE y SPLINE (las dos últimas se convierten en contorno), INSERT, TEXT y MTEXT (solo de una línea).
+- **Nuevo job**: solo el **nombre** es obligatorio. Se puede crear **desde una plantilla de job** (material, máquina, ajustes) o desde el Settings Manager. Existe un generador de nombres de job.
+- Pasos de un job según el manual: crear el job → añadir chapas → insertar piezas → ajustes de nesting → nestear → ajustes de exportación → exportar → guardar.
+- **Almacenamiento de datos** (Archivo > Configuración del sistema > Almacenamiento de datos): cada tipo de objeto puede tener su propia ruta, incluida una unidad de red. Existe "Actualizar índice". Por eso en `C:\BystronicData\BySoftCam\Parts` hay una sola pieza: la base real de piezas está probablemente en otra ruta. PENDIENTE de verificar en el PC.
+
+## Flujo propuesto sin licencia de API (todo con funciones oficiales)
+
+1. **Part Importer**: importar todos los DXF de la carpeta a la base de piezas (con la configuración `.pis` de material, espesor y tecnología).
+2. **Herramienta propia** (lo único que hay que programar): leer el Excel del usuario (referencia + cantidad), comprobar que cada referencia existe en la base de piezas y generar el **Excel con el formato de BySoft** (columnas A–G, con la ruta correcta en A).
+3. **Part Nester**: Nuevo job (nombre, desde una plantilla) → Nueva pieza → Importar piezas desde archivo → nestear → guardar.
+4. Opcional: automatizar los clics de los pasos 1 y 3 con AutoHotkey, como `bysoft-export`.
