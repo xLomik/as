@@ -296,3 +296,19 @@ Código del Importer, sobre lo que necesita el `.pis`:
 - `CuttingMachineGuid` → la máquina. `CuttingRuleGuid` → el asistente de corte (en System hay ByFiber_N2 y ByFiber_O2).
 - **`NcParameterFile` puede quedar vacío**: el importador elige el `.PAR` automáticamente con la ruta NC de la máquina + material + espesor (`TryCalculateCuttingTime`).
 - Siguiente paso: **catálogo** (modo `BySoftCarpeta catalogo System`), que lista materiales, máquinas, reglas y gases con su GUID leyendo solo el índice. Con él se arma la tabla de equivalencias "alias de la subcarpeta → MaterialGuid / regla de corte".
+
+---
+
+# Ronda 13: catálogo de System, registro de programas y DomainModel
+
+## Catálogo (BySoftCarpeta catalogo System)
+- La base **System es LOCAL**: `c:\BystronicData\BySoftCam\System`. No está en la red.
+- **Materials** (los que usa el `.pis`, campo `MaterialGuid`): 1.4031 (inox), ASTM (A1011), AW5083, AW5754, AW6082 (aluminio), **DC01** `32d65efb-…` (acero suave, el del `prueba2.pis`), DC01+ZE (galvanizado), DD11, RuukkiLaser250C. Son **materiales genéricos de Bystronic**: SAEJ 050, SAPH-440, HARDOX… no existen como tales. Hay que hacer una **tabla de equivalencias** "material comercial → material BySoft".
+- CuttingMachine: BYSPRINT FIBER 4020 `cfcb40d8-…`. CuttingRuleSet: ByFiber_O2 `03e10b39-…` y ByFiber_N2 `d034b4e3-…`.
+- DomainModel: `Material` no tiene espesor (densidad, imán, CuttingMaterial, grupo). El espesor va aparte (`Thickness` del `.pis`). El gas sale de `CuttingMaterial.Thicknesses`.
+
+## Registro de programas (LISTADO_PROGRAMAS_LASER-FANALCA.xls)
+- Hojas `LASER-PRODUCCION` (prefijo LP) y `LASER-DESARROLLO` (prefijo LD). Columnas: FECHA CREACION | CODIGO (LP/LD) | MES (texto "09") | AÑO (texto "26") | consecutivo (número) | [REVISION "R0", solo en PRODUCCION] | NOMBRE | REFERENCIA | ESP | MATERIAL | PROY/CLIENTE.
+- **Nombre del programa = prefijo + MES + AÑO + consecutivo**. Ejemplos: LP0926724, LD0826770. Concuerda con los jobs de la Start View. El consecutivo **no se reinicia** por mes. Último usado: LP 731 (09/26), LD 804 (10/26).
+- **Un programa por material y espesor**, que coincide con una subcarpeta.
+- Hay filas pre-numeradas sin nombre (LP hasta 897, LD hasta 895): el siguiente libre es la primera fila con NOMBRE vacío.
