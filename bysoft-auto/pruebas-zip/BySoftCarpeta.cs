@@ -6,6 +6,8 @@
 // Uso:
 //   BySoftCarpeta.exe info                         -> muestra las rutas de las bases
 //   BySoftCarpeta.exe crear <Raiz> <Ruta\Relativa> -> crea (o registra) la carpeta
+//   BySoftCarpeta.exe catalogo [Raiz]              -> lista objetos (tipo;nombre;guid;carpeta)
+//      de una base (por defecto System: materiales, maquinas, reglas de corte, gases)
 //      <Raiz> = Parts | PartJobs   (nombre de la base en BySoft)
 //
 // Se compila en el PC con el csc.exe de .NET Framework (C# 5). Usa las DLL de
@@ -79,6 +81,10 @@ internal static class Programa
             }
             return 0;
         }
+        if (modo == "catalogo")
+        {
+            return Catalogo(pm, args.Length >= 2 ? args[1] : "System");
+        }
         if (modo == "crear" && args.Length >= 3)
         {
             return Crear(pm, args[1], args[2]);
@@ -116,6 +122,26 @@ internal static class Programa
             }
         }
         Console.WriteLine("OK " + f.LocalPath + " -> " + f.PhysicalPath);
+        return 0;
+    }
+
+    // Solo lee el indice: no carga ni modifica ningun objeto.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int Catalogo(Bystronic.BySoft.Common.Persistence.PersistenceManager pm, string raiz)
+    {
+        Bystronic.BySoft.Common.Persistence.FolderInfo r = pm.GetRootFolder(raiz);
+        Console.WriteLine("# Base " + raiz + ": " + r.PhysicalPath);
+        Console.WriteLine("Tipo;Nombre;Guid;Carpeta;Descripcion");
+        Bystronic.BySoft.Common.Persistence.SearchObjectCriteria c = new Bystronic.BySoft.Common.Persistence.SearchObjectCriteria();
+        c.SearchSubFolders = true;
+        int n = 0;
+        foreach (Bystronic.BySoft.Common.Persistence.ObjectInfo o in r.SearchObjects(c))
+        {
+            string carpeta = o.Folder == null ? "" : o.Folder.LocalPath;
+            Console.WriteLine(o.TypeName + ";" + o.Name + ";" + o.Guid + ";" + carpeta + ";" + (o.Description ?? "").Replace(";", ",").Replace("\r", " ").Replace("\n", " "));
+            n++;
+        }
+        Console.WriteLine("# Total: " + n);
         return 0;
     }
 
@@ -177,5 +203,6 @@ internal static class Programa
         Console.WriteLine("Uso:");
         Console.WriteLine("  BySoftCarpeta.exe info");
         Console.WriteLine("  BySoftCarpeta.exe crear Parts|PartJobs \"DESARROLLO\\PROYECTO\\2 ACERO\"");
+        Console.WriteLine("  BySoftCarpeta.exe catalogo [System]");
     }
 }

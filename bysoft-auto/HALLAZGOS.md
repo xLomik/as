@@ -279,3 +279,20 @@ Observado en la prueba TEST_AUTO: el job tiene 3 filas ("Part name", TEST_AUTO_0
 - La compilación local con csc falló con CS0012: falta `/r:Bystronic.BySoft.Common.dll`. Corregido en el `.bat`. El exe incluido sirvió de respaldo.
 
 Cadena confirmada: **BySoftCarpeta (crear carpeta en Parts y PartJobs) → copia del `.pis` con SavePathRelative → PartImporter -s= -dir= → Excel (nombre, cantidad como texto, sin encabezado) → Part Nester "Importar piezas desde archivo"**.
+
+---
+
+# Ronda 12: requisitos del usuario y diseño de la herramienta
+
+Respuestas del usuario:
+1. El formato del Excel de cantidades lo definimos nosotros: `formato/FORMATO_CANTIDADES.xlsx` (Referencia | Cantidad | Observacion).
+2. El área, el proyecto y el nombre del programa los decide el usuario a mano. Enviará su formato de nombres.
+3. La carpeta de DXF tiene subcarpetas por material y espesor. En la base real hay nombres muy variados: "6", "4.5", "3.42 SAEJ 050", "SAEJ 080 Esp=6mm", "ASTM A36 Esp=6,35mm", "JIS G 3141 SPCD SD Esp=2mm", "SAPH-440; E=4.5mm"… La convención propuesta es `<MATERIAL> Esp=<espesor>mm` (la forma más común), con punto decimal.
+4. **El usuario no usa `.pis`**: configura el Part Importer a mano en cada importación. La herramienta tiene que **generar el `.pis`** para cada subcarpeta.
+5. Basta con dejar las piezas importadas y el Excel generado. El job lo crea el usuario.
+
+Código del Importer, sobre lo que necesita el `.pis`:
+- `MaterialGuid` → busca en la raíz de `Material`. Si no lo encuentra, crea un `new Material()` vacío (registra LogMaterialNotFound). El gas se toma de la tabla de espesores del CuttingMaterial.
+- `CuttingMachineGuid` → la máquina. `CuttingRuleGuid` → el asistente de corte (en System hay ByFiber_N2 y ByFiber_O2).
+- **`NcParameterFile` puede quedar vacío**: el importador elige el `.PAR` automáticamente con la ruta NC de la máquina + material + espesor (`TryCalculateCuttingTime`).
+- Siguiente paso: **catálogo** (modo `BySoftCarpeta catalogo System`), que lista materiales, máquinas, reglas y gases con su GUID leyendo solo el índice. Con él se arma la tabla de equivalencias "alias de la subcarpeta → MaterialGuid / regla de corte".
