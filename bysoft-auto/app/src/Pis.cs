@@ -14,7 +14,7 @@ namespace AutoBySoft
     public static class Pis
     {
         public static string Generar(string plantillaXml, Guid material, double espesor, Guid maquina,
-                                     Guid reglaDeCorte, string archivoPar, string rutaLocalDestino)
+                                     Guid reglaDeCorte, string archivoPar, string rutaLocalDestino, bool sobrescribir)
         {
             XDocument doc = XDocument.Parse(plantillaXml);
             XElement raiz = doc.Root;
@@ -30,8 +30,9 @@ namespace AutoBySoft
             raiz.SetAttributeValue("SavePathRelative", rutaLocalDestino);
             // Sin gas fijo: el Part Importer toma el gas de la tabla de espesores del material.
             raiz.SetAttributeValue("CuttingGasTypeGuid", null);
-            // Si la pieza ya existe se ignora (nunca se crea con otro nombre ni se sobrescribe).
-            raiz.SetAttributeValue("HandleFileConflicts", null);
+            // Si la pieza ya existe en esa carpeta: se ignora (por defecto) o se sobrescribe
+            // (modo actualizar). Nunca "Indexing", que crearia otro nombre.
+            raiz.SetAttributeValue("HandleFileConflicts", sobrescribir ? "Overwrite" : null);
 
             XmlWriterSettings s = new XmlWriterSettings();
             s.Encoding = new UTF8Encoding(false);

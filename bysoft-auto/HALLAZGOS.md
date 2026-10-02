@@ -334,3 +334,12 @@ Código en `app/` (ver `app/README.md`). Pruebas hechas aquí, sin BySoft:
 - Revisión de un pedido simulado: detecta DXF suelto, subcarpeta sin espesor, DXF en dos subcarpetas, referencia sin DXF, DXF sin cantidad y extensión .DXF en mayúsculas.
 - PENDIENTE (requiere el PC real): conexión con BySoft, lectura del listado `.xls` por COM, la ventana en Windows y la ejecución completa.
 - Duda abierta: espesores mayores que el máximo `.PAR` de la familia (ACERO > 12 mm, ej. 12.7 o 19) dan error. ¿Qué hace el usuario en esos casos?
+
+---
+
+# Ronda 16: piezas recurrentes (Div. Ambiental) y modo "Actualizar"
+
+- **Los jobs guardan una COPIA de la pieza**: `PartWrapperBase`/`PartLink` serializan `ctx.Serialize("Part", ref part, typeof(Part))`, es decir, el objeto completo, no una referencia. Sobrescribir o borrar una pieza en Parts **no cambia los nesteos anteriores**. MUY PROBABLE (leído en el código; falta comprobarlo en el PC).
+- **La base no exige nombres únicos**: `HasUniqueObjectNames()` comprueba el índice `ObjectInfo_NameUC_UniqueIdx`, y la base admitió duplicados (raíz + PRUEBA_AUTO). Con `Overwrite` y sin unicidad, el Part Importer sobrescribe **solo dentro de la carpeta destino**; si la pieza estaba en otra carpeta, crea una segunda copia (que luego da "repetidas" en el Part Nester).
+- AutoBySoft tiene ahora 3 modos para una pieza que ya existe una vez: **Detener**, **Usar la existente** o **Actualizar**. Actualizar reimporta con `HandleFileConflicts="Overwrite"` y `SavePathRelative` = la carpeta donde ya está la pieza, para que no se dupliquen. Las piezas nuevas van a la carpeta del programa. Se importa por grupos de carpeta (un `.pis` por grupo).
+- PENDIENTE: comprobar en el PC que Overwrite en la misma carpeta deja la pieza 1 sola vez (la verificación posterior de AutoBySoft lo detecta).

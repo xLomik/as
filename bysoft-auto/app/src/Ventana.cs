@@ -21,7 +21,7 @@ namespace AutoBySoft
         private readonly TextBox _txtDestino = new TextBox();
         private readonly TextBox _txtListado = new TextBox();
         private readonly NumericUpDown _numCons = new NumericUpDown();
-        private readonly CheckBox _chkReutilizar = new CheckBox();
+        private readonly ComboBox _cmbExistentes = new ComboBox();
         private readonly Button _btnRevisar = new Button();
         private readonly Button _btnEjecutar = new Button();
         private readonly Button _btnAbrir = new Button();
@@ -81,11 +81,12 @@ namespace AutoBySoft
             cons.Controls.Add(Boton("Leer del listado", LeerConsecutivo));
             Fila(t, "Consecutivo del 1er programa:", cons, null);
 
-            _chkReutilizar.Text = "Usar piezas que ya existen en BySoft (no volver a importarlas)";
-            _chkReutilizar.AutoSize = true;
-            t.Controls.Add(new Label(), 0, t.RowCount);
-            t.Controls.Add(_chkReutilizar, 1, t.RowCount);
-            t.RowCount++;
+            _cmbExistentes.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cmbExistentes.Items.Add("Detener y avisar (no tocar nada)");
+            _cmbExistentes.Items.Add("Usar la existente (no volver a importarla)");
+            _cmbExistentes.Items.Add("Actualizar con el DXF nuevo (sobrescribe en su carpeta actual)");
+            _cmbExistentes.SelectedIndex = 0;
+            Fila(t, "Si la pieza ya existe en BySoft:", _cmbExistentes, null);
 
             FlowLayoutPanel botones = new FlowLayoutPanel();
             botones.AutoSize = true;
@@ -124,7 +125,7 @@ namespace AutoBySoft
                 cc.TextChanged += delegate { InvalidarRevision(); };
             }
             _rbLP.CheckedChanged += delegate { InvalidarRevision(); };
-            _chkReutilizar.CheckedChanged += delegate { InvalidarRevision(); };
+            _cmbExistentes.SelectedIndexChanged += delegate { InvalidarRevision(); };
 
             CargarPreferencias();
             FormClosing += delegate { GuardarPreferencias(); };
@@ -261,7 +262,7 @@ namespace AutoBySoft
             e.Prefijo = Prefijo();
             e.DestinoBase = _txtDestino.Text.Trim().Trim('\\', '/');
             e.Consecutivo = (int)_numCons.Value;
-            e.ReutilizarExistentes = _chkReutilizar.Checked;
+            e.Existentes = (ModoExistentes)_cmbExistentes.SelectedIndex;
             return e;
         }
 
@@ -367,6 +368,7 @@ namespace AutoBySoft
                     string k = l.Substring(0, i), v = l.Substring(i + 1);
                     if (k == "listado" && v.Length > 0) _txtListado.Text = v;
                     else if (k == "tipo") { _rbLP.Checked = v == "LP"; _rbLD.Checked = v != "LP"; }
+                    else if (k == "existentes") { int i2; if (int.TryParse(v, out i2) && i2 >= 0 && i2 < _cmbExistentes.Items.Count) _cmbExistentes.SelectedIndex = i2; }
                 }
             }
             catch { }
@@ -378,7 +380,7 @@ namespace AutoBySoft
             {
                 string r = RutaPreferencias();
                 Directory.CreateDirectory(Path.GetDirectoryName(r));
-                File.WriteAllText(r, "listado=" + _txtListado.Text + "\r\ntipo=" + Prefijo() + "\r\n", Encoding.UTF8);
+                File.WriteAllText(r, "listado=" + _txtListado.Text + "\r\ntipo=" + Prefijo() + "\r\nexistentes=" + _cmbExistentes.SelectedIndex + "\r\n", Encoding.UTF8);
             }
             catch { }
         }

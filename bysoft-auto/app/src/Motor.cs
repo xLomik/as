@@ -54,6 +54,14 @@ namespace AutoBySoft
         }
     }
 
+    // Que hacer si una pieza del pedido ya existe (una vez) en BySoft.
+    public enum ModoExistentes
+    {
+        Detener,        // error: no se toca nada
+        Usar,           // se usa la existente, no se importa
+        Actualizar      // se vuelve a importar el DXF y se sobrescribe en SU carpeta actual
+    }
+
     public sealed class Entrada
     {
         public string CarpetaPedido;
@@ -61,7 +69,7 @@ namespace AutoBySoft
         public string Prefijo;              // LP / LD
         public string DestinoBase;          // DESARROLLO\150. Proyecto X
         public int Consecutivo;
-        public bool ReutilizarExistentes;
+        public ModoExistentes Existentes = ModoExistentes.Detener;
     }
 
     public sealed class Plan
@@ -292,15 +300,29 @@ namespace AutoBySoft
                         }
                         else if (pz.UbicacionesEnBySoft.Count == 1)
                         {
-                            if (e.ReutilizarExistentes)
+                            string donde = pz.UbicacionesEnBySoft[0];
+                            if (e.Existentes == ModoExistentes.Usar)
                             {
                                 pz.Importar = false;
-                                plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + pz.UbicacionesEnBySoft[0] + ": se usa la existente (no se importa).");
+                                plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": se usa la existente (no se importa).");
+                            }
+                            else if (e.Existentes == ModoExistentes.Actualizar)
+                            {
+                                if (!donde.StartsWith("/"))
+                                {
+                                    plan.Errores.Add("La pieza " + pz.Referencia + " existe en BySoft pero sin carpeta en el indice; no se puede actualizar. Borrala desde BySoft.");
+                                }
+                                else
+                                {
+                                    pz.Sobrescribir = true;
+                                    pz.CarpetaLocal = donde;
+                                    plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": se ACTUALIZA ahi con el DXF nuevo.");
+                                }
                             }
                             else
                             {
-                                plan.Errores.Add("La pieza " + pz.Referencia + " ya existe en BySoft (" + pz.UbicacionesEnBySoft[0] +
-                                                 "). Renombra el DXF o marca 'Usar piezas que ya existen'.");
+                                plan.Errores.Add("La pieza " + pz.Referencia + " ya existe en BySoft (" + donde +
+                                                 "). Renombra el DXF o elige 'Usar la existente' o 'Actualizar'.");
                             }
                         }
                     }
@@ -370,22 +392,34 @@ namespace AutoBySoft
                     foreach (string l in Api.CrearCarpeta("Parts", p.DestinoRelativo)) _log("  Parts: " + l);
                     foreach (string l in Api.CrearCarpeta("PartJobs", p.DestinoRelativo)) _log("  PartJobs: " + l);
 
-                    string pis = Pis.Generar(plantilla, plan.Materiales[p.MaterialBySoft], p.Par.Espesor, plan.Maquina,
-                                             plan.Reglas[p.Familia.ReglaDeCorte], p.Par.Archivo, BySoftApi.RutaLocal(p.DestinoRelativo));
-                    string rutaPis = Path.Combine(carpetaSalida, p.Nombre + ".pis");
-                    File.WriteAllText(rutaPis, pis, new UTF8Encoding(false));
-
-                    List<Pieza> aImportar = p.Piezas.Where(x => x.Importar).ToList();
-                    if (aImportar.Count > 0)
+                    // Piezas nuevas -> carpeta del programa; piezas a actualizar -> su carpeta actual.
+                    string destinoPrograma = BySoftApi.RutaLocal(p.DestinoRelativo);
+                    foreach (Pieza pz in p.Piezas)
                     {
-                        string dirStaging = Path.Combine(staging, p.Nombre);
+                        if (pz.Importar && string.IsNullOrEmpty(pz.CarpetaLocal))
+                        {
+                            pz.CarpetaLocal = destinoPrograma;
+                        }
+                    }
+                    int grupo = 0;
+                    foreach (IGrouping<string, Pieza> g in p.Piezas.Where(x => x.Importar)
+                                 .GroupBy(x => x.CarpetaLocal, StringComparer.OrdinalIgnoreCase))
+                    {
+                        grupo++;
+                        bool sobrescribir = g.Any(x => x.Sobrescribir);
+                        string sufijo = grupo == 1 ? "" : "_" + grupo;
+                        string pis = Pis.Generar(plantilla, plan.Materiales[p.MaterialBySoft], p.Par.Espesor, plan.Maquina,
+                                                 plan.Reglas[p.Familia.ReglaDeCorte], p.Par.Archivo, g.Key, sobrescribir);
+                        string rutaPis = Path.Combine(carpetaSalida, p.Nombre + sufijo + ".pis");
+                        File.WriteAllText(rutaPis, pis, new UTF8Encoding(false));
+                        string dirStaging = Path.Combine(staging, p.Nombre + sufijo);
                         Directory.CreateDirectory(dirStaging);
-                        foreach (Pieza pz in aImportar)
+                        foreach (Pieza pz in g)
                         {
                             File.Copy(pz.RutaDxf, Path.Combine(dirStaging, Path.GetFileName(pz.RutaDxf)), true);
                         }
-                        string rutaLog = Path.Combine(carpetaSalida, p.Nombre + "_importacion.log");
-                        _log("  Importando " + aImportar.Count + " DXF con el Part Importer...");
+                        string rutaLog = Path.Combine(carpetaSalida, p.Nombre + sufijo + "_importacion.log");
+                        _log("  Importando " + g.Count() + " DXF en " + g.Key + (sobrescribir ? " (actualizando existentes)" : "") + "...");
                         int cod = EjecutarImporter(importer, rutaPis, dirStaging, rutaLog);
                         _log("  Part Importer termino con codigo " + cod + (cod == 0 ? " (OK)" : ""));
                         if (File.Exists(rutaLog))
@@ -409,7 +443,6 @@ namespace AutoBySoft
                     // Verificar que cada pieza exista UNA vez en BySoft antes de generar el Excel:
                     // si el Excel nombra una pieza inexistente, el Part Nester crea una pieza VACIA.
                     List<string> faltan = new List<string>();
-                    string destinoLocal = BySoftApi.RutaLocal(p.DestinoRelativo);
                     foreach (Pieza pz in p.Piezas)
                     {
                         List<string> u = Api.BuscarPieza(pz.Referencia);
@@ -417,7 +450,7 @@ namespace AutoBySoft
                         {
                             faltan.Add(pz.Referencia + " (encontrada " + u.Count + " veces)");
                         }
-                        else if (pz.Importar && !string.Equals(u[0], destinoLocal, StringComparison.OrdinalIgnoreCase))
+                        else if (pz.Importar && !string.Equals(u[0], pz.CarpetaLocal, StringComparison.OrdinalIgnoreCase))
                         {
                             faltan.Add(pz.Referencia + " (quedo en " + u[0] + ")");
                         }

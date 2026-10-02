@@ -53,8 +53,14 @@ USO
 SEGURIDAD
   - Si BySoft apunta a otra base de piezas distinta de PARTS_ESPERADA
     (AutoBySoft.ini) no se toca nada.
-  - Si una pieza ya existe en BySoft se detiene (o, si marcas "Usar piezas que ya
-    existen", usa la existente sin importarla). Si existe 2+ veces, siempre se detiene.
+  - "Si la pieza ya existe en BySoft" (eliges en la ventana):
+      * Detener y avisar: no se toca nada (lo mas seguro).
+      * Usar la existente: no se reimporta; el Excel usa la que ya esta.
+      * Actualizar con el DXF nuevo: se vuelve a importar y SOBRESCRIBE la pieza
+        en SU carpeta actual (no crea copias). Ideal para pedidos recurrentes
+        (ej. Div. Ambiental) cuando no sabes si el DXF cambio.
+    Los nesteos anteriores NO se afectan: cada job guarda su propia copia de la pieza.
+    Si una pieza existe 2+ veces en BySoft, siempre se detiene (el Part Nester no podria cargarla).
   - Solo genera el Excel de un programa si TODAS sus piezas quedaron en BySoft
     (si no, el Part Nester crearia piezas vacias).
   - Nunca sobrescribe piezas ni modifica tu listado de programas.
