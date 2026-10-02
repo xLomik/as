@@ -322,3 +322,15 @@ Código del Importer, sobre lo que necesita el `.pis`:
 - **Regla del usuario**: se elige el **espesor inmediatamente superior** que tenga `.PAR` (3.2 → 3.5 si existe, si no 4). Para el acero, el material sale de ese `.PAR`: ≤3 → DC01, ≥4 → DD11.
 - La lista de espesores del desplegable (DD11: 3.5, 4.5, 6.35, 12.7…) sale de la tabla del CuttingMaterial, no de los `.PAR`. El `.PAR` que se elige es el de espesor superior (por ejemplo, 4.5 → DD11_5).
 - Código: `NcParameterFile` solo se usa para calcular el tiempo de corte. La tecnología la aplica el CuttingRuleSet (ByFiber_O2/N2).
+
+---
+
+# Ronda 15: AutoBySoft v1 (herramienta completa)
+
+Código en `app/` (ver `app/README.md`). Pruebas hechas aquí, sin BySoft:
+- Interpretación de subcarpetas y elección de `.PAR` con los 129 `.PAR` reales de Parametros_europa: 3.42→DD11 4, 4.5→DD11 5, 6.35→DD11 8, 8.25→DD11 10, 2.9→DC01 3, "6"→ACERO asumido DD11 6, inox 2→1.4301_2_N2, aluminio 3→AW5754_3_N2_QUALITY, 12.7→sin `.PAR` (error).
+- Excel de cantidades: suma de repetidas, cantidades no enteras y filas sin referencia dan error. El Excel de salida se relee con openpyxl y todas sus celdas son texto. LibreOffice no funciona en este entorno, así que no sirvió para validar.
+- `.pis` generado: cambia MaterialGuid/Thickness/Machine/Rule/NcParameterFile/SavePathRelative, quita CuttingGasTypeGuid y deja HandleFileConflicts por defecto (Ignore).
+- Revisión de un pedido simulado: detecta DXF suelto, subcarpeta sin espesor, DXF en dos subcarpetas, referencia sin DXF, DXF sin cantidad y extensión .DXF en mayúsculas.
+- PENDIENTE (requiere el PC real): conexión con BySoft, lectura del listado `.xls` por COM, la ventana en Windows y la ejecución completa.
+- Duda abierta: espesores mayores que el máximo `.PAR` de la familia (ACERO > 12 mm, ej. 12.7 o 19) dan error. ¿Qué hace el usuario en esos casos?

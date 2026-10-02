@@ -1,0 +1,69 @@
+AUTOBYSOFT - Importar piezas a BySoft y preparar los Excel de nesteo
+====================================================================
+
+QUE HACE
+  A partir de una carpeta de pedido con DXF y del Excel de cantidades:
+   1. Revisa todo SIN tocar BySoft: DXF que faltan o sobran, materiales,
+      espesores, .PAR, y que ninguna pieza este repetida en BySoft.
+   2. Por cada subcarpeta (material + espesor) = un programa (LPmmaaNNN / LDmmaaNNN):
+      - crea la carpeta destino en Parts-FANALCA y PartJobs-FANALCA
+        (con la funcion de BySoft: queda en el indice, sin "Actualizar indice"),
+      - genera el .pis (material, espesor, maquina, asistente de corte, .PAR),
+      - importa los DXF con el Part Importer (sin abrir ventanas),
+      - verifica que cada pieza quedo en BySoft,
+      - genera el Excel para "Importar piezas desde archivo" del Part Nester.
+   3. Genera FILAS_PARA_LISTADO.xlsx con las filas para tu listado de programas.
+
+  El job (nesteo) lo creas tu en el Part Nester con el nombre del programa y
+  cargas su Excel: Datos > Pieza > Nueva pieza > Importar piezas desde archivo.
+
+COMO PREPARAR EL PEDIDO
+  PEDIDO_XXX\
+     SAEJ 050 Esp=3.42mm\      pieza1.dxf, pieza2.dxf ...
+     HARDOX 450 Esp=4.5mm\     pieza3.dxf ...
+     cantidades.xlsx           (copia de FORMATO_CANTIDADES.xlsx llena)
+  - Nombre de subcarpeta: MATERIAL Esp=ESPESORmm (punto decimal).
+    Tambien se entienden "4.5 HARDOX-450", "SAEJ 080 E=6mm", "3.42mm SAEJ 050".
+    Si solo pones el espesor ("6") se asume ACERO (sale un aviso).
+  - Cada DXF en una sola subcarpeta. Ningun DXF suelto en la carpeta del pedido.
+  - El nombre del DXF (sin .dxf) es el nombre de la pieza en BySoft.
+
+REGLA DE TECNOLOGIA (tecnologia.txt y materiales.txt, editables)
+  - Acero: O2, ByFiber_O2. Se toma el .PAR del espesor IGUAL o SIGUIENTE MAYOR:
+      hasta 3 mm -> DC01 (0.8 1 1.5 2 2.5 3) ; desde 4 mm -> DD11 (4 5 6 8 10 12)
+      ej. 3.2 -> DD11 4 ; 3.42 -> DD11 4 ; 4.5 -> DD11 5 ; 6.35 -> DD11 8 ; 8.25 -> DD11 10
+  - Inoxidable: 1.4031 / .PAR 1.4301 N2, ByFiber_N2
+  - Aluminio: AW5754 N2, ByFiber_N2 ; Galvanizado: DC01+ZE N2, ByFiber_N2
+  - El espesor que se pone en BySoft es el del .PAR (el redondeado), como lo haces a mano.
+  - Para un material nuevo: agrega una linea "ALIAS;FAMILIA" en materiales.txt.
+
+USO
+  1. Doble clic en AutoBySoft.exe. La primera vez se reinicia solo (copia la
+     configuracion de BySoft). Si Windows avisa "Windows protegio su PC":
+     "Mas informacion" > "Ejecutar de todas formas".
+  2. Elige carpeta del pedido, Excel de cantidades, tipo (LP/LD) y escribe la
+     carpeta destino en BySoft (ej. DESARROLLO\150. Ref 10510104995).
+  3. Listado de programas: elige el .xls y pulsa "Leer del listado" (usa Excel,
+     solo lectura) o escribe el consecutivo a mano.
+  4. "1. Revisar": lee el resumen, avisos y errores. Corrige y repite si hace falta.
+  5. "2. Ejecutar". Al terminar, "Abrir resultados": carpeta _AutoBySoft_<fecha>
+     dentro del pedido con: <PROGRAMA>_<subcarpeta>.xlsx, .pis, logs, registro.txt
+     y FILAS_PARA_LISTADO.xlsx.
+
+SEGURIDAD
+  - Si BySoft apunta a otra base de piezas distinta de PARTS_ESPERADA
+    (AutoBySoft.ini) no se toca nada.
+  - Si una pieza ya existe en BySoft se detiene (o, si marcas "Usar piezas que ya
+    existen", usa la existente sin importarla). Si existe 2+ veces, siempre se detiene.
+  - Solo genera el Excel de un programa si TODAS sus piezas quedaron en BySoft
+    (si no, el Part Nester crearia piezas vacias).
+  - Nunca sobrescribe piezas ni modifica tu listado de programas.
+
+PRIMERA PRUEBA RECOMENDADA
+  Usa un pedido pequeno de prueba y como destino DESARROLLO\PRUEBA_AUTO4.
+  Revisa en BySoft las piezas (material, espesor, tecnologia) antes de usarla
+  con pedidos reales.
+
+SI NO ARRANCA
+  Compilar-en-este-PC.bat compila AutoBySoft.exe desde src\ con el compilador de
+  Windows (.NET Framework) usando las DLL de BySoft instaladas.

@@ -1,0 +1,56 @@
+# Tabla de equivalencias: texto del material en el nombre de la subcarpeta -> FAMILIA
+# Formato: ALIAS;FAMILIA      (FAMILIA = ACERO, GALVANIZADO, INOX, ALUMINIO; ver tecnologia.txt)
+# Se compara sin espacios, guiones ni puntos y sin distinguir mayusculas.
+# EL ORDEN IMPORTA: gana la PRIMERA linea que coincide. Por eso inox/aluminio/galvanizado
+# van antes que acero (ej. "ASTM A240 TYPE 304" debe ser INOX, no ACERO por "ASTM").
+#
+# --- Inoxidable
+INOX;INOX
+INOXIDABLE;INOX
+SUS;INOX
+A240;INOX
+304;INOX
+409;INOX
+430;INOX
+1.4301;INOX
+SS PER;INOX
+# --- Aluminio
+ALUMINIO;ALUMINIO
+ALU;ALUMINIO
+AW5754;ALUMINIO
+5754;ALUMINIO
+6061;ALUMINIO
+# --- Galvanizado
+GALVANIZAD;GALVANIZADO
+GALV;GALVANIZADO
+DX51D;GALVANIZADO
+DC01+ZE;GALVANIZADO
+# --- Acero (lamina que no es inoxidable)
+SAEJ;ACERO
+SAE J;ACERO
+SAPH;ACERO
+SPFH;ACERO
+SPCD;ACERO
+SPCC;ACERO
+SPHC;ACERO
+SP152;ACERO
+JSH;ACERO
+JIS;ACERO
+ASTM;ACERO
+A36;ACERO
+A572;ACERO
+GR50;ACERO
+GR 50;ACERO
+GRADO 50;ACERO
+S355;ACERO
+S275;ACERO
+HARDOX;ACERO
+STRENX;ACERO
+DOMEX;ACERO
+CR;ACERO
+HR;ACERO
+HRPO;ACERO
+FLEJE;ACERO
+SHIM;ACERO
+DC01;ACERO
+DD11;ACERO
