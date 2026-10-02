@@ -122,6 +122,28 @@ namespace AutoBySoft
             o.Rename(nuevoNombre);
         }
 
+        // Subcarpetas registradas en el indice bajo 'rutaRelativa' ("" = raiz).
+        public List<string> Subcarpetas(string raiz, string rutaRelativa)
+        {
+            FolderInfo f = _pm.GetRootFolder(raiz);
+            string[] partes = Partes(rutaRelativa);
+            if (partes.Length > 0)
+            {
+                f = f.GetFolderFromLocalPath(RutaLocal(rutaRelativa));
+            }
+            List<string> r = new List<string>();
+            if (f == null)
+            {
+                return r;
+            }
+            foreach (FolderInfo h in f.GetFolders())
+            {
+                r.Add(h.Name);
+            }
+            r.Sort(StringComparer.OrdinalIgnoreCase);
+            return r;
+        }
+
         public List<ObjetoCatalogo> Catalogo(string raiz)
         {
             SearchObjectCriteria c = new SearchObjectCriteria();

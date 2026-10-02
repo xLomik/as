@@ -298,6 +298,10 @@ namespace AutoBySoft
                     errores.Add("Fila " + fila + ": cantidad sin referencia.");
                     continue;
                 }
+                if (cant.Length == 0 || cant == "0")
+                {
+                    continue;   // sin cantidad: no se importa (el Motor lo avisa como "DXF sin cantidad")
+                }
                 double dc;
                 if (!double.TryParse(cant.Replace(',', '.'), NumberStyles.Float, Inv, out dc) || dc < 1 || Math.Abs(dc - Math.Round(dc)) > 1e-9)
                 {

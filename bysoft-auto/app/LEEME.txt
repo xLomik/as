@@ -41,12 +41,21 @@ USO
   1. Doble clic en AutoBySoft.exe. La primera vez se reinicia solo (copia la
      configuracion de BySoft). Si Windows avisa "Windows protegio su PC":
      "Mas informacion" > "Ejecutar de todas formas".
-  2. Elige carpeta del pedido, Excel de cantidades, tipo (LP/LD) y escribe la
-     carpeta destino en BySoft (ej. DESARROLLO\150. Ref 10510104995).
-  3. Listado de programas: elige el .xls y pulsa "Leer del listado" (usa Excel,
-     solo lectura) o escribe el consecutivo a mano.
-  4. "1. Revisar": lee el resumen, avisos y errores. Corrige y repite si hace falta.
-  5. "2. Ejecutar". Al terminar, "Abrir resultados": carpeta _AutoBySoft_<fecha>
+  2. PASO 1 - Pedido: elige (o ARRASTRA a la ventana) la carpeta del pedido.
+     Debajo veras cuantas subcarpetas y DXF encontro.
+     Si aun no tienes el Excel de cantidades, pulsa "Crear Excel de cantidades
+     con los DXF del pedido": se crea CANTIDADES_<pedido>.xlsx con todas las
+     referencias; solo escribes las cantidades (las vacias no se importan),
+     guardas y cierras Excel. Si ya hay un Excel con encabezado "Referencia"
+     en la carpeta del pedido, se elige solo.
+  3. PASO 2 - Programa: tipo LP/LD; carpeta destino con "Elegir..." (muestra
+     las carpetas de BySoft; para una nueva, escribe su nombre al final de la
+     ruta); listado de programas y "Leer del listado". Debajo veras los
+     nombres de programa que se van a usar.
+  4. PASO 3 - Elige que hacer si una pieza ya existe.
+     "Revisar": a la derecha veras el Resumen (un programa por fila) y la
+     pestaña Problemas (errores en rojo, avisos en naranja). Corrige y repite.
+  5. "Ejecutar". Al terminar, "Abrir resultados": carpeta _AutoBySoft_<fecha>
      dentro del pedido con: <PROGRAMA>_<subcarpeta>.xlsx, .pis, logs, registro.txt
      y FILAS_PARA_LISTADO.xlsx.
 
