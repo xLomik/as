@@ -454,6 +454,7 @@ namespace AutoBySoft
                 }
             }
             List<string[]> filas = new List<string[]>();
+            filas.Add(new[] { "Referencia", "Cantidad", "Observacion" });
             HashSet<string> vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
@@ -467,22 +468,12 @@ namespace AutoBySoft
                         if (vistos.Add(r)) filas.Add(new[] { r, "", "" });
                     }
                 }
-                if (filas.Count == 0)
+                if (filas.Count == 1)
                 {
                     MessageBox.Show(this, "No se encontraron DXF en las subcarpetas del pedido.", Text);
                     return;
                 }
-                string plantilla = _cfg.Archivo("FORMATO_CANTIDADES.xlsx");
-                if (File.Exists(plantilla))
-                {
-                    XlsxPlantilla.LlenarCantidades(plantilla, ruta, filas);
-                }
-                else
-                {
-                    filas.Insert(0, new[] { "Referencia", "Cantidad", "Observacion" });
-                    XlsxEscritor.Escribir(ruta, "Cantidades", filas);
-                    filas.RemoveAt(0);
-                }
+                XlsxEscritor.Escribir(ruta, "Cantidades", filas);
             }
             catch (Exception ex)
             {
@@ -491,7 +482,7 @@ namespace AutoBySoft
             }
             _txtExcel.Text = ruta;
             Abrir(ruta);
-            MessageBox.Show(this, "Se creo el Excel con " + filas.Count + " referencias.\n\n" +
+            MessageBox.Show(this, "Se creo el Excel con " + (filas.Count - 1) + " referencias.\n\n" +
                                   "Escribe la cantidad en la columna B, guarda y cierra Excel.\n" +
                                   "Las referencias sin cantidad no se importan.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
             AnalizarExcel();
