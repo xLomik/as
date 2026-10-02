@@ -85,7 +85,8 @@ namespace AutoBySoft
             _cmbExistentes.DropDownStyle = ComboBoxStyle.DropDownList;
             _cmbExistentes.Items.Add("Detener y avisar (no tocar nada)");
             _cmbExistentes.Items.Add("Usar la existente (no volver a importarla)");
-            _cmbExistentes.Items.Add("Actualizar con el DXF nuevo (sobrescribe; afecta nesteos anteriores)");
+            _cmbExistentes.Items.Add("Actualizar conservando nesteos anteriores (renombra la version vieja)");
+            _cmbExistentes.Items.Add("Actualizar y sobrescribir (los nesteos anteriores tambien cambian)");
             _cmbExistentes.SelectedIndex = 0;
             Fila(t, "Si la pieza ya existe en BySoft:", _cmbExistentes, null);
 

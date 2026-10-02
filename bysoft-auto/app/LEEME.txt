@@ -56,19 +56,31 @@ SEGURIDAD
   - "Si la pieza ya existe en BySoft" (eliges en la ventana):
       * Detener y avisar: no se toca nada (lo mas seguro).
       * Usar la existente: no se reimporta; el Excel usa la que ya esta.
-      * Actualizar con el DXF nuevo: se vuelve a importar y SOBRESCRIBE la pieza
-        en SU carpeta actual (no crea copias). Ideal para pedidos recurrentes
-        (ej. Div. Ambiental) cuando no sabes si el DXF cambio.
-    IMPORTANTE: los nesteos estan ENLAZADOS a la pieza de la carpeta. Si se
-    actualiza una pieza, los nesteos anteriores que la usan tambien cambian.
-    Por eso, antes de sobrescribir, la herramienta lista las piezas y pide
-    confirmacion. Si quieres conservar un nesteo viejo intacto, no uses
-    "Actualizar": renombra el DXF nuevo (ej. REF_R1) para crear otra pieza.
+      * Actualizar conservando nesteos anteriores (RECOMENDADO para pedidos
+        recurrentes, ej. Div. Ambiental): la pieza vieja se RENOMBRA en BySoft
+        a REF_ANT_aammdd (misma carpeta) y el DXF nuevo entra con el nombre
+        original REF. Tu archivo DXF no cambia de nombre.
+        Los nesteos anteriores siguen usando la version vieja: BySoft guarda en
+        cada nesteo el GUID de la pieza y renombrar no cambia el GUID.
+        Si la importacion falla, la pieza vieja recupera su nombre.
+        Si la pieza esta abierta en BySoft no se puede renombrar: se detiene
+        ese programa sin importar nada.
+      * Actualizar y sobrescribir: reemplaza la pieza en su carpeta. Los
+        nesteos anteriores que la usan TAMBIEN cambian (pide confirmacion).
     Si una pieza existe 2+ veces en BySoft, siempre se detiene (el Part Nester no podria cargarla).
   - Solo genera el Excel de un programa si TODAS sus piezas quedaron en BySoft
     (si no, el Part Nester crearia piezas vacias).
-  - Solo sobrescribe piezas en modo "Actualizar" (con confirmacion). Nunca
+  - Solo sobrescribe piezas en modo "Actualizar y sobrescribir" (con confirmacion). Nunca
     modifica tu listado de programas.
+
+PRUEBA DEL MODO "CONSERVANDO NESTEOS ANTERIORES" (hazla antes de usarlo en serio)
+  1. Importa con AutoBySoft una pieza de prueba (ej. AUTOTEST_C) y crea con
+     ella un nesteo de prueba; guardalo.
+  2. Modifica el DXF (ej. agrega un agujero) SIN cambiarle el nombre.
+  3. Ejecuta AutoBySoft otra vez con "Actualizar conservando nesteos anteriores".
+  4. Abre el nesteo del paso 1: debe verse la pieza SIN el agujero (y llamarse
+     AUTOTEST_C_ANT_aammdd). La pieza AUTOTEST_C nueva debe tener el agujero.
+  Mandame el registro.txt y una captura si algo no coincide.
 
 PRIMERA PRUEBA RECOMENDADA
   Usa un pedido pequeno de prueba y como destino DESARROLLO\PRUEBA_AUTO4.

@@ -38,7 +38,9 @@ namespace AutoBySoft
         public string RutaDxf;
         public List<string> UbicacionesEnBySoft = new List<string>();
         public bool Importar = true;
-        public bool Sobrescribir;           // actualizar una pieza que ya existe
+        public bool Sobrescribir;           // actualizar una pieza que ya existe (afecta nesteos anteriores)
+        public bool Conservar;              // renombrar la version anterior y luego importar la nueva
+        public string NombreAnterior;       // nombre que recibio la version anterior (si Conservar)
         public string CarpetaLocal;         // carpeta BySoft donde se importa ("/A/B/")
     }
 

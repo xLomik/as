@@ -59,7 +59,9 @@ namespace AutoBySoft
     {
         Detener,        // error: no se toca nada
         Usar,           // se usa la existente, no se importa
-        Actualizar      // se vuelve a importar el DXF y se sobrescribe en SU carpeta actual
+        Conservar,      // la version anterior se renombra (los nesteos viejos la siguen usando por su GUID)
+                        // y el DXF nuevo se importa con el nombre original en la misma carpeta
+        Actualizar      // se vuelve a importar el DXF y se sobrescribe en SU carpeta actual (cambia nesteos viejos)
     }
 
     public sealed class Entrada
@@ -306,11 +308,18 @@ namespace AutoBySoft
                                 pz.Importar = false;
                                 plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": se usa la existente (no se importa).");
                             }
-                            else if (e.Existentes == ModoExistentes.Actualizar)
+                            else if (e.Existentes == ModoExistentes.Actualizar || e.Existentes == ModoExistentes.Conservar)
                             {
                                 if (!donde.StartsWith("/"))
                                 {
                                     plan.Errores.Add("La pieza " + pz.Referencia + " existe en BySoft pero sin carpeta en el indice; no se puede actualizar. Borrala desde BySoft.");
+                                }
+                                else if (e.Existentes == ModoExistentes.Conservar)
+                                {
+                                    pz.Conservar = true;
+                                    pz.CarpetaLocal = donde;
+                                    plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": la version anterior se renombra a " +
+                                                    pz.Referencia + Motor.SufijoAnterior + "... (los nesteos anteriores la siguen usando) y el DXF nuevo entra con el nombre original.");
                                 }
                                 else
                                 {
@@ -371,6 +380,9 @@ namespace AutoBySoft
         }
 
         // ================================================================ EJECUTAR
+        // Nombre de la version anterior: REF_ANT_yyMMdd (y _2, _3... si ya existe).
+        public const string SufijoAnterior = "_ANT_";
+
         public bool Ejecutar(Plan plan, Entrada e, out string carpetaSalida)
         {
             string sello = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
@@ -401,6 +413,7 @@ namespace AutoBySoft
                             pz.CarpetaLocal = destinoPrograma;
                         }
                     }
+                    RenombrarAnteriores(p);
                     int grupo = 0;
                     foreach (IGrouping<string, Pieza> g in p.Piezas.Where(x => x.Importar)
                                  .GroupBy(x => x.CarpetaLocal, StringComparer.OrdinalIgnoreCase))
@@ -460,6 +473,7 @@ namespace AutoBySoft
                         todoOk = false;
                         _log("  ERROR: piezas que no quedaron bien en BySoft; NO se genera el Excel de este programa:");
                         foreach (string f in faltan) _log("    - " + f);
+                        RestaurarAnteriores(p);
                         continue;
                     }
 
@@ -487,6 +501,64 @@ namespace AutoBySoft
             _log("");
             _log(todoOk ? "=== TERMINADO SIN ERRORES ===" : "=== TERMINADO CON ERRORES: revisa el registro ===");
             return todoOk;
+        }
+
+        // Modo Conservar: renombra la version anterior de cada pieza ANTES de importar.
+        // El nesteo guarda la pieza como box://Parts/carpeta/nombre#GUID y la busca primero por GUID;
+        // renombrar conserva el GUID, asi que los nesteos anteriores siguen viendo la version vieja.
+        // Si falla un renombre, se deshacen los anteriores de este programa y no se importa nada.
+        private void RenombrarAnteriores(Programa p)
+        {
+            string fecha = DateTime.Now.ToString("yyMMdd", CultureInfo.InvariantCulture);
+            List<Pieza> hechas = new List<Pieza>();
+            foreach (Pieza pz in p.Piezas.Where(x => x.Importar && x.Conservar))
+            {
+                string nuevo = pz.Referencia + SufijoAnterior + fecha;
+                for (int n = 2; Api.BuscarPieza(nuevo).Count > 0; n++)
+                {
+                    nuevo = pz.Referencia + SufijoAnterior + fecha + "_" + n;
+                }
+                try
+                {
+                    Api.RenombrarPieza(pz.Referencia, pz.CarpetaLocal, nuevo);
+                }
+                catch (Exception ex)
+                {
+                    _log("  ERROR al renombrar " + pz.Referencia + " (¿esta abierta en BySoft?): " + ex.Message);
+                    foreach (Pieza h in hechas) Restaurar(h);
+                    throw new InvalidOperationException("No se pudo conservar la version anterior de " + pz.Referencia + "; no se importo nada de este programa.");
+                }
+                pz.NombreAnterior = nuevo;
+                hechas.Add(pz);
+                _log("  Version anterior de " + pz.Referencia + " conservada como " + nuevo + " en " + pz.CarpetaLocal +
+                     " (los nesteos anteriores la siguen usando).");
+            }
+        }
+
+        // Si la pieza nueva no quedo en BySoft, la version anterior recupera su nombre.
+        private void RestaurarAnteriores(Programa p)
+        {
+            foreach (Pieza pz in p.Piezas.Where(x => x.NombreAnterior != null))
+            {
+                if (Api.BuscarPieza(pz.Referencia).Count == 0)
+                {
+                    Restaurar(pz);
+                }
+            }
+        }
+
+        private void Restaurar(Pieza pz)
+        {
+            try
+            {
+                Api.RenombrarPieza(pz.NombreAnterior, pz.CarpetaLocal, pz.Referencia);
+                _log("  Restaurado el nombre original de " + pz.Referencia + ".");
+                pz.NombreAnterior = null;
+            }
+            catch (Exception ex)
+            {
+                _log("  ERROR: no se pudo devolver " + pz.NombreAnterior + " a " + pz.Referencia + ": " + ex.Message + " (renombrala a mano en BySoft).");
+            }
         }
 
         private static int EjecutarImporter(string exe, string pis, string carpeta, string log)

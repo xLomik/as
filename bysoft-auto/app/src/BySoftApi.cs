@@ -3,7 +3,8 @@
 //  - crear carpetas registrandolas en el indice (FolderInfo.CreateSubfolder)
 //  - buscar piezas por nombre en el indice
 //  - leer el catalogo de System (materiales, maquinas, reglas de corte)
-// No carga ni modifica objetos de BySoft; solo el indice y carpetas.
+//  - renombrar una pieza (modo "conservar version anterior"); el GUID no cambia
+// No carga ni modifica el contenido de los objetos de BySoft.
 
 using System;
 using System.Collections.Generic;
@@ -103,6 +104,22 @@ namespace AutoBySoft
                 r.Add(o.Folder == null ? "(sin carpeta)" : o.Folder.LocalPath);
             }
             return r;
+        }
+
+        // Renombra (archivo .box, archivos asociados e indice) la pieza 'nombre' de la carpeta indicada.
+        // Usa ObjectInfo.Rename de BySoft: respeta los bloqueos y conserva el GUID.
+        public void RenombrarPieza(string nombre, string carpetaLocal, string nuevoNombre)
+        {
+            SearchObjectCriteria c = new SearchObjectCriteria(true);
+            c.Name = nombre;
+            c.SearchSubFolders = true;
+            ObjectInfo o = _pm.GetRootFolder("Parts").SearchObjects(c)
+                .FirstOrDefault(x => x.Folder != null && string.Equals(x.Folder.LocalPath, carpetaLocal, StringComparison.OrdinalIgnoreCase));
+            if (o == null)
+            {
+                throw new InvalidOperationException("No se encontro la pieza " + nombre + " en " + carpetaLocal);
+            }
+            o.Rename(nuevoNombre);
         }
 
         public List<ObjetoCatalogo> Catalogo(string raiz)

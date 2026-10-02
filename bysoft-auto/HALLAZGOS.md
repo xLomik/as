@@ -343,3 +343,21 @@ Código en `app/` (ver `app/README.md`). Pruebas hechas aquí, sin BySoft:
 - **La base no exige nombres únicos**: `HasUniqueObjectNames()` comprueba el índice `ObjectInfo_NameUC_UniqueIdx`, y la base admitió duplicados (raíz + PRUEBA_AUTO). Con `Overwrite` y sin unicidad, el Part Importer sobrescribe **solo dentro de la carpeta destino**; si la pieza estaba en otra carpeta, crea una segunda copia (que luego da "repetidas" en el Part Nester).
 - AutoBySoft tiene ahora 3 modos para una pieza que ya existe una vez: **Detener**, **Usar la existente** o **Actualizar**. Actualizar reimporta con `HandleFileConflicts="Overwrite"` y `SavePathRelative` = la carpeta donde ya está la pieza, para que no se dupliquen. Las piezas nuevas van a la carpeta del programa. Se importa por grupos de carpeta (un `.pis` por grupo).
 - PENDIENTE: comprobar en el PC que Overwrite en la misma carpeta deja la pieza 1 sola vez (la verificación posterior de AutoBySoft lo detecta).
+
+## Ronda 17 — Conservar nesteos anteriores sin cambiar el nombre del DXF
+
+Pregunta del usuario: actualizar una pieza sin renombrar el archivo y sin que cambien los nesteos anteriores.
+
+Evidencia (código de BySoft, no se versiona):
+- El nesteo guarda la pieza como referencia externa `box://Parts/<carpeta>/<nombre>#<GUID>` (`PersistenceManager.BuildObjectUri`).
+- Al abrir el nesteo, `ObjectUriResolver` → `PersistenceManager.GetObject(uri)` busca **primero por GUID** y, solo si no lo encuentra, por carpeta + nombre. CONFIRMADO (código).
+- `Importer.SavePart` con `Overwrite` hace `SaveNew` de una pieza nueva (GUID nuevo) que reemplaza el archivo: el GUID viejo desaparece del índice y el nesteo cae al respaldo carpeta + nombre → ve la pieza nueva. Explica lo que observó el usuario.
+- `ObjectInfo.Rename` renombra el `.box`, sus archivos asociados y la fila del índice (`UPDATE ObjectInfo SET Name… WHERE Guid=…`); **el GUID no cambia**. Respeta bloqueos (falla si la pieza está abierta). `DoLoad` toma nombre y GUID del índice.
+
+Solución implementada (modo "Actualizar conservando nesteos anteriores"):
+1. Renombrar la pieza existente a `REF_ANT_aammdd` en su carpeta (GUID intacto → los nesteos viejos la siguen encontrando por GUID).
+2. Importar el DXF con su nombre original `REF` en la misma carpeta (pieza nueva, GUID nuevo, sin conflicto).
+3. El Excel del Part Nester usa `REF` (único por nombre). Si la importación falla, se devuelve el nombre original.
+
+Estado: PROBABLE (deducido del código); falta la prueba en el PC descrita en `app/LEEME.txt`.
+
