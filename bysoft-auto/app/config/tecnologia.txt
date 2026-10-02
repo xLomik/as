@@ -1,0 +1,13 @@
+# Tecnologia por familia
+# Formato: FAMILIA;MATERIAL_DEL_PAR=MATERIAL_BYSOFT,...;GAS;ASISTENTE_DE_CORTE;SUFIJOS_PAR
+#   MATERIAL_DEL_PAR : como aparece en el nombre del .PAR (SPRINT4020_8109_6000_<MAT>_<ESP>_200_<GAS>.PAR)
+#   MATERIAL_BYSOFT  : material de BySoft que se pone en la pieza (catalogo System/Materials)
+#   SUFIJOS_PAR      : variantes de .PAR aceptadas, en orden de preferencia, separadas por |
+#                      (vacio = .PAR sin sufijo). Ej: "|QUALITY" = sin sufijo y si no hay, _QUALITY
+# Regla de espesor: se usa el .PAR del espesor IGUAL o INMEDIATAMENTE SUPERIOR que exista
+# (3.2 -> 4 ; 3.42 -> 4 ; 2.6 -> 3 ; 8.25 -> 10). En ACERO el material sale de ese .PAR:
+# hasta 3 mm DC01, desde 4 mm DD11.
+ACERO;DC01=DC01,DD11=DD11;O2;ByFiber_O2;
+GALVANIZADO;DC01+ZE=DC01+ZE;N2;ByFiber_N2;
+INOX;1.4301=1.4031;N2;ByFiber_N2;
+ALUMINIO;AW5754=AW5754;N2;ByFiber_N2;|QUALITY

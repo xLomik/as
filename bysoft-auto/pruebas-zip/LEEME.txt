@@ -1,0 +1,61 @@
+PRUEBA 3 BYSOFT - CARPETAS CON LA API DE BYSOFT
+===============================================
+
+Lo que ya sabemos:
+  - El Part Importer NO crea carpetas.
+  - Una carpeta creada con mkdir/Explorador NO aparece en BySoft
+    (no entra en el indice index.db).
+  - El boton "Crear nueva carpeta" del Part Importer usa la funcion de BySoft
+    FolderInfo.CreateSubfolder: crea la carpeta Y la registra en el indice.
+
+Que prueba ahora:
+  A. herramienta\BySoftCarpeta.exe llama a esa misma funcion de BySoft,
+     usando las DLL de BySoft instaladas en este PC.
+     Crea DESARROLLO\PRUEBA_AUTO3 en Parts-FANALCA y en PartJobs-FANALCA.
+  B. Registra en el indice DESARROLLO\PRUEBA_AUTO2 (la que hizo mkdir).
+  C. Importa AUTOTEST_C_R0 y AUTOTEST_D_R0 en PRUEBA_AUTO3.
+  D. En BySoft, SIN "Actualizar indice", deben verse PRUEBA_AUTO2,
+     PRUEBA_AUTO3 y las piezas C y D.
+
+Contenido:
+  1-Ejecutar-prueba.bat           -> hace A, B y C
+  2-importar_en_part_nester.xlsx  -> Excel (sin encabezado, todo texto)
+  config\prueba_auto3.pis          -> tu prueba2.pis con destino PRUEBA_AUTO3
+  dxf\AUTOTEST_C_R0.dxf            -> 120 x 60 mm, 1 agujero de 20 mm
+  dxf\AUTOTEST_D_R0.dxf            -> 90 x 45 mm, 2 agujeros de 10 mm
+  herramienta\BySoftCarpeta.cs     -> codigo fuente de la herramienta
+  herramienta\BySoftCarpeta.exe    -> la misma, ya compilada
+     El .bat intenta compilar el .cs con el csc.exe que trae Windows;
+     si no puede, usa el .exe incluido.
+
+PASOS
+-----
+1. Borra la carpeta PRUEBAS_BYSOFT anterior y descomprime este ZIP en el
+   Escritorio.
+
+2. Doble clic en 1-Ejecutar-prueba.bat
+   - Paso 2: comprueba que BySoft usa la base Parts-FANALCA del servidor.
+     Si no coincide, se detiene sin tocar nada.
+   - Paso 4: crea/registra las carpetas con la API de BySoft.
+   - Paso 5: te pide cerrar el Part Importer, luego importa.
+   - Debe terminar con "RESULTADO: OK".
+
+3. En BySoft, SIN actualizar indice: Part Editor > Abrir la pieza >
+   DESARROLLO. Deben aparecer PRUEBA_AUTO2 y PRUEBA_AUTO3.
+   Dentro de PRUEBA_AUTO3: AUTOTEST_C_R0 y AUTOTEST_D_R0 con dibujo.
+
+4. Part Nester > Nuevo Job (2 mm) > Datos > Pieza > Nueva pieza >
+   Importar piezas desde archivo > 2-importar_en_part_nester.xlsx
+   Deben aparecer AUTOTEST_C_R0 x2 y AUTOTEST_D_R0 x3, con dibujo.
+
+5. Envia: resultado.txt + captura del paso 3 + captura del paso 4.
+
+NOTAS
+-----
+- AUTOTEST_A_R0 y AUTOTEST_B_R0 (prueba anterior) quedaron en el indice
+  "huerfanas" (sin carpeta, porque PRUEBA_AUTO2 no estaba registrada).
+  Puede que no aparezcan dentro de PRUEBA_AUTO2 aunque la carpeta ya se vea.
+  Buscalas en la pestana Buscar y borralas desde BySoft.
+- Limpieza al final (desde BySoft): AUTOTEST_*, "Part name",
+  TEST_AUTO_01/02 (vacias), carpetas PRUEBA_AUTO, PRUEBA_AUTO2, PRUEBA_AUTO3
+  y los jobs de prueba.

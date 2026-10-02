@@ -1,0 +1,103 @@
+AUTOBYSOFT - Importar piezas a BySoft y preparar los Excel de nesteo
+====================================================================
+
+QUE HACE
+  A partir de una carpeta de pedido con DXF y del Excel de cantidades:
+   1. Revisa todo SIN tocar BySoft: DXF que faltan o sobran, materiales,
+      espesores, .PAR, y que ninguna pieza este repetida en BySoft.
+   2. Por cada subcarpeta (material + espesor) = un programa (LPmmaaNNN / LDmmaaNNN):
+      - crea la carpeta destino en Parts-FANALCA y PartJobs-FANALCA
+        (con la funcion de BySoft: queda en el indice, sin "Actualizar indice"),
+      - genera el .pis (material, espesor, maquina, asistente de corte, .PAR),
+      - importa los DXF con el Part Importer (sin abrir ventanas),
+      - verifica que cada pieza quedo en BySoft,
+      - genera el Excel para "Importar piezas desde archivo" del Part Nester.
+   3. Genera FILAS_PARA_LISTADO.xlsx con las filas para tu listado de programas.
+
+  El job (nesteo) lo creas tu en el Part Nester con el nombre del programa y
+  cargas su Excel: Datos > Pieza > Nueva pieza > Importar piezas desde archivo.
+
+COMO PREPARAR EL PEDIDO
+  PEDIDO_XXX\
+     SAEJ 050 Esp=3.42mm\      pieza1.dxf, pieza2.dxf ...
+     HARDOX 450 Esp=4.5mm\     pieza3.dxf ...
+     cantidades.xlsx           (copia de FORMATO_CANTIDADES.xlsx llena)
+  - Nombre de subcarpeta: MATERIAL Esp=ESPESORmm (punto decimal).
+    Tambien se entienden "4.5 HARDOX-450", "SAEJ 080 E=6mm", "3.42mm SAEJ 050".
+    Si solo pones el espesor ("6") se asume ACERO (sale un aviso).
+  - Cada DXF en una sola subcarpeta. Ningun DXF suelto en la carpeta del pedido.
+  - El nombre del DXF (sin .dxf) es el nombre de la pieza en BySoft.
+
+REGLA DE TECNOLOGIA (tecnologia.txt y materiales.txt, editables)
+  - Acero: O2, ByFiber_O2. Se toma el .PAR del espesor IGUAL o SIGUIENTE MAYOR:
+      hasta 3 mm -> DC01 (0.8 1 1.5 2 2.5 3) ; desde 4 mm -> DD11 (4 5 6 8 10 12)
+      ej. 3.2 -> DD11 4 ; 3.42 -> DD11 4 ; 4.5 -> DD11 5 ; 6.35 -> DD11 8 ; 8.25 -> DD11 10
+  - Inoxidable: 1.4031 / .PAR 1.4301 N2, ByFiber_N2
+  - Aluminio: AW5754 N2, ByFiber_N2 ; Galvanizado: DC01+ZE N2, ByFiber_N2
+  - El espesor que se pone en BySoft es el del .PAR (el redondeado), como lo haces a mano.
+  - Para un material nuevo: agrega una linea "ALIAS;FAMILIA" en materiales.txt.
+
+USO
+  1. Doble clic en AutoBySoft.exe. La primera vez se reinicia solo (copia la
+     configuracion de BySoft). Si Windows avisa "Windows protegio su PC":
+     "Mas informacion" > "Ejecutar de todas formas".
+  2. PASO 1 - Pedido: elige (o ARRASTRA a la ventana) la carpeta del pedido.
+     Debajo veras cuantas subcarpetas y DXF encontro.
+     Si aun no tienes el Excel de cantidades, pulsa "Crear Excel de cantidades
+     con los DXF del pedido": se crea CANTIDADES_<pedido>.xlsx con todas las
+     referencias; solo escribes las cantidades (las vacias no se importan),
+     guardas y cierras Excel. Si ya hay un Excel con encabezado "Referencia"
+     en la carpeta del pedido, se elige solo.
+  3. PASO 2 - Programa: tipo LP/LD; carpeta destino con "Elegir..." (muestra
+     las carpetas de BySoft; para una nueva, escribe su nombre al final de la
+     ruta); listado de programas y "Leer del listado". Debajo veras los
+     nombres de programa que se van a usar.
+  4. PASO 3 - Elige que hacer si una pieza ya existe.
+     "Revisar": a la derecha veras el Resumen (un programa por fila) y la
+     pestaña Problemas (errores en rojo, avisos en naranja). Corrige y repite.
+  5. "Ejecutar". Al terminar, "Abrir resultados": carpeta _AutoBySoft_<fecha>
+     dentro del pedido con: <PROGRAMA>_<subcarpeta>.xlsx, .pis, logs, registro.txt
+     y FILAS_PARA_LISTADO.xlsx.
+
+SEGURIDAD
+  - Subcarpetas con espesor mayor a ESPESOR_MAX (10 mm, en AutoBySoft.ini)
+    dan error: no se corta lamina mas gruesa.
+  - Si BySoft apunta a otra base de piezas distinta de PARTS_ESPERADA
+    (AutoBySoft.ini) no se toca nada.
+  - "Si la pieza ya existe en BySoft" (eliges en la ventana):
+      * Detener y avisar: no se toca nada (lo mas seguro).
+      * Usar la existente: no se reimporta; el Excel usa la que ya esta.
+      * Actualizar conservando nesteos anteriores (RECOMENDADO para pedidos
+        recurrentes, ej. Div. Ambiental): la pieza vieja se RENOMBRA en BySoft
+        a REF_ANT_aammdd (misma carpeta) y el DXF nuevo entra con el nombre
+        original REF. Tu archivo DXF no cambia de nombre.
+        Los nesteos anteriores siguen usando la version vieja: BySoft guarda en
+        cada nesteo el GUID de la pieza y renombrar no cambia el GUID.
+        Si la importacion falla, la pieza vieja recupera su nombre.
+        Si la pieza esta abierta en BySoft no se puede renombrar: se detiene
+        ese programa sin importar nada.
+      * Actualizar y sobrescribir: reemplaza la pieza en su carpeta. Los
+        nesteos anteriores que la usan TAMBIEN cambian (pide confirmacion).
+    Si una pieza existe 2+ veces en BySoft, siempre se detiene (el Part Nester no podria cargarla).
+  - Solo genera el Excel de un programa si TODAS sus piezas quedaron en BySoft
+    (si no, el Part Nester crearia piezas vacias).
+  - Solo sobrescribe piezas en modo "Actualizar y sobrescribir" (con confirmacion). Nunca
+    modifica tu listado de programas.
+
+PRUEBA DEL MODO "CONSERVANDO NESTEOS ANTERIORES" (hazla antes de usarlo en serio)
+  1. Importa con AutoBySoft una pieza de prueba (ej. AUTOTEST_C) y crea con
+     ella un nesteo de prueba; guardalo.
+  2. Modifica el DXF (ej. agrega un agujero) SIN cambiarle el nombre.
+  3. Ejecuta AutoBySoft otra vez con "Actualizar conservando nesteos anteriores".
+  4. Abre el nesteo del paso 1: debe verse la pieza SIN el agujero (y llamarse
+     AUTOTEST_C_ANT_aammdd). La pieza AUTOTEST_C nueva debe tener el agujero.
+  Mandame el registro.txt y una captura si algo no coincide.
+
+PRIMERA PRUEBA RECOMENDADA
+  Usa un pedido pequeno de prueba y como destino DESARROLLO\PRUEBA_AUTO4.
+  Revisa en BySoft las piezas (material, espesor, tecnologia) antes de usarla
+  con pedidos reales.
+
+SI NO ARRANCA
+  Compilar-en-este-PC.bat compila AutoBySoft.exe desde src\ con el compilador de
+  Windows (.NET Framework) usando las DLL de BySoft instaladas.
