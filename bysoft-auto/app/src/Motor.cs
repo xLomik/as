@@ -18,6 +18,7 @@ namespace AutoBySoft
         public string Maquina = "BYSPRINT FIBER 4020";
         public string PartsEsperada = "";
         public string Listado = "";
+        public double EspesorMax = 10;      // mm; no se corta lamina mas gruesa
         public string DirApp;
 
         public static Config Cargar(string dirApp)
@@ -44,6 +45,11 @@ namespace AutoBySoft
                 else if (k == "MAQUINA") c.Maquina = v;
                 else if (k == "PARTS_ESPERADA") c.PartsEsperada = v;
                 else if (k == "LISTADO") c.Listado = v;
+                else if (k == "ESPESOR_MAX")
+                {
+                    double m;
+                    if (double.TryParse(v.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out m) && m > 0) c.EspesorMax = m;
+                }
             }
             return c;
         }
@@ -174,6 +180,12 @@ namespace AutoBySoft
                 if (!Reglas.InterpretarSubcarpeta(sub, out mat, out esp))
                 {
                     plan.Errores.Add("No se entiende el espesor de la subcarpeta '" + sub + "'. Usa el formato: MATERIAL Esp=4.5mm");
+                    continue;
+                }
+                if (esp > _cfg.EspesorMax)
+                {
+                    plan.Errores.Add("La subcarpeta '" + sub + "' es de " + Reglas.Num(esp) + " mm: supera el maximo que se corta (" +
+                                     Reglas.Num(_cfg.EspesorMax) + " mm, ESPESOR_MAX en AutoBySoft.ini).");
                     continue;
                 }
                 p.MaterialTexto = mat;

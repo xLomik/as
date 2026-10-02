@@ -51,6 +51,8 @@ USO
      y FILAS_PARA_LISTADO.xlsx.
 
 SEGURIDAD
+  - Subcarpetas con espesor mayor a ESPESOR_MAX (10 mm, en AutoBySoft.ini)
+    dan error: no se corta lamina mas gruesa.
   - Si BySoft apunta a otra base de piezas distinta de PARTS_ESPERADA
     (AutoBySoft.ini) no se toca nada.
   - "Si la pieza ya existe en BySoft" (eliges en la ventana):

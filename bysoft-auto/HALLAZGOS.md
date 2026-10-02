@@ -333,7 +333,7 @@ Código en `app/` (ver `app/README.md`). Pruebas hechas aquí, sin BySoft:
 - `.pis` generado: cambia MaterialGuid/Thickness/Machine/Rule/NcParameterFile/SavePathRelative, quita CuttingGasTypeGuid y deja HandleFileConflicts por defecto (Ignore).
 - Revisión de un pedido simulado: detecta DXF suelto, subcarpeta sin espesor, DXF en dos subcarpetas, referencia sin DXF, DXF sin cantidad y extensión .DXF en mayúsculas.
 - PENDIENTE (requiere el PC real): conexión con BySoft, lectura del listado `.xls` por COM, la ventana en Windows y la ejecución completa.
-- Duda abierta: espesores mayores que el máximo `.PAR` de la familia (ACERO > 12 mm, ej. 12.7 o 19) dan error. ¿Qué hace el usuario en esos casos?
+- ~~Duda abierta: ACERO > 12 mm~~ RESUELTA: el usuario no corta lámina mayor a 10 mm. AutoBySoft rechaza subcarpetas con espesor > `ESPESOR_MAX` (10 por defecto, en `AutoBySoft.ini`). CONFIRMADO (usuario).
 
 ---
 
