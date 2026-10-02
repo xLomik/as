@@ -3,6 +3,7 @@
 // "1. Revisar" valida todo sin modificar BySoft; "2. Ejecutar" hace el trabajo.
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -84,7 +85,7 @@ namespace AutoBySoft
             _cmbExistentes.DropDownStyle = ComboBoxStyle.DropDownList;
             _cmbExistentes.Items.Add("Detener y avisar (no tocar nada)");
             _cmbExistentes.Items.Add("Usar la existente (no volver a importarla)");
-            _cmbExistentes.Items.Add("Actualizar con el DXF nuevo (sobrescribe en su carpeta actual)");
+            _cmbExistentes.Items.Add("Actualizar con el DXF nuevo (sobrescribe; afecta nesteos anteriores)");
             _cmbExistentes.SelectedIndex = 0;
             Fila(t, "Si la pieza ya existe en BySoft:", _cmbExistentes, null);
 
@@ -226,6 +227,33 @@ namespace AutoBySoft
                                 " programa(s). ¿Continuar?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 return;
+            }
+            List<string> actualizadas = new List<string>();
+            foreach (Programa pr in _plan.Programas)
+            {
+                foreach (Pieza pz in pr.Piezas)
+                {
+                    if (pz.Sobrescribir)
+                    {
+                        actualizadas.Add(pz.Referencia + "  (" + pz.CarpetaLocal + ")");
+                    }
+                }
+            }
+            if (actualizadas.Count > 0)
+            {
+                int max = Math.Min(actualizadas.Count, 15);
+                string lista = string.Join("\n", actualizadas.GetRange(0, max).ToArray());
+                if (actualizadas.Count > max)
+                {
+                    lista += "\n... y " + (actualizadas.Count - max) + " mas (ver registro).";
+                }
+                if (MessageBox.Show(this, "ATENCION: se van a SOBRESCRIBIR " + actualizadas.Count + " pieza(s) que ya existen en BySoft:\n\n" +
+                                    lista + "\n\nLos nesteos ANTERIORES que usan estas piezas tambien veran el cambio " +
+                                    "(estan enlazados a la pieza de la carpeta). ¿Sobrescribir de todas formas?",
+                                    Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                {
+                    return;
+                }
             }
             Bloquear(true);
             Plan plan = _plan;

@@ -316,7 +316,7 @@ namespace AutoBySoft
                                 {
                                     pz.Sobrescribir = true;
                                     pz.CarpetaLocal = donde;
-                                    plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": se ACTUALIZA ahi con el DXF nuevo.");
+                                    plan.Avisos.Add("La pieza " + pz.Referencia + " ya existe en " + donde + ": se ACTUALIZA ahi con el DXF nuevo (los nesteos anteriores que la usan tambien cambian).");
                                 }
                             }
                             else

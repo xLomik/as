@@ -59,11 +59,16 @@ SEGURIDAD
       * Actualizar con el DXF nuevo: se vuelve a importar y SOBRESCRIBE la pieza
         en SU carpeta actual (no crea copias). Ideal para pedidos recurrentes
         (ej. Div. Ambiental) cuando no sabes si el DXF cambio.
-    Los nesteos anteriores NO se afectan: cada job guarda su propia copia de la pieza.
+    IMPORTANTE: los nesteos estan ENLAZADOS a la pieza de la carpeta. Si se
+    actualiza una pieza, los nesteos anteriores que la usan tambien cambian.
+    Por eso, antes de sobrescribir, la herramienta lista las piezas y pide
+    confirmacion. Si quieres conservar un nesteo viejo intacto, no uses
+    "Actualizar": renombra el DXF nuevo (ej. REF_R1) para crear otra pieza.
     Si una pieza existe 2+ veces en BySoft, siempre se detiene (el Part Nester no podria cargarla).
   - Solo genera el Excel de un programa si TODAS sus piezas quedaron en BySoft
     (si no, el Part Nester crearia piezas vacias).
-  - Nunca sobrescribe piezas ni modifica tu listado de programas.
+  - Solo sobrescribe piezas en modo "Actualizar" (con confirmacion). Nunca
+    modifica tu listado de programas.
 
 PRIMERA PRUEBA RECOMENDADA
   Usa un pedido pequeno de prueba y como destino DESARROLLO\PRUEBA_AUTO4.
