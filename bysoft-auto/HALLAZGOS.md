@@ -312,3 +312,13 @@ Código del Importer, sobre lo que necesita el `.pis`:
 - **Nombre del programa = prefijo + MES + AÑO + consecutivo**. Ejemplos: LP0926724, LD0826770. Concuerda con los jobs de la Start View. El consecutivo **no se reinicia** por mes. Último usado: LP 731 (09/26), LD 804 (10/26).
 - **Un programa por material y espesor**, que coincide con una subcarpeta.
 - Hay filas pre-numeradas sin nombre (LP hasta 897, LD hasta 895): el siguiente libre es la primera fila con NOMBRE vacío.
+
+---
+
+# Ronda 14: parámetros de corte y regla de espesor (usuario + parametros-bysoft.txt)
+
+- Los `.PAR` que se usan están en `C:\BystronicData\BySoftCam\8109C_BySprint_Fiber_4020_6000_BIMO2_POWERCUT\Parametros_europa`. Formato del nombre: `SPRINT4020_8109_6000_<MAT>_<ESP>_200_<GAS>[_SUFIJO].PAR`.
+- Acero (gas O2, sin sufijo): **DC01** = 0.8, 1, 1.5, 2, 2.5, 3; **DD11** = 4, 5, 6, 8, 10, 12. Inox 1.4301 (N2): 0.8–8 sin sufijo, 10+ con sufijos. Aluminio AW5754: N2 con o sin QUALITY/SPEED. Galvanizado DC01+ZE N2: 0.8–4.
+- **Regla del usuario**: se elige el **espesor inmediatamente superior** que tenga `.PAR` (3.2 → 3.5 si existe, si no 4). Para el acero, el material sale de ese `.PAR`: ≤3 → DC01, ≥4 → DD11.
+- La lista de espesores del desplegable (DD11: 3.5, 4.5, 6.35, 12.7…) sale de la tabla del CuttingMaterial, no de los `.PAR`. El `.PAR` que se elige es el de espesor superior (por ejemplo, 4.5 → DD11_5).
+- Código: `NcParameterFile` solo se usa para calcular el tiempo de corte. La tecnología la aplica el CuttingRuleSet (ByFiber_O2/N2).
