@@ -509,6 +509,7 @@ namespace AutoBySoft
             }
 
             EscribirFilasListado(listos, e, Path.Combine(carpetaSalida, "FILAS_PARA_LISTADO.xlsx"));
+            EscribirPiezasACortar(listos, e, carpetaSalida);
             try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { }
             _log("");
             _log(todoOk ? "=== TERMINADO SIN ERRORES ===" : "=== TERMINADO CON ERRORES: revisa el registro ===");
@@ -584,6 +585,47 @@ namespace AutoBySoft
             {
                 pr.WaitForExit();
                 return pr.ExitCode;
+            }
+        }
+
+        // Piezas a cortar en laser, con el formato de FORMATO_CANTIDADES.xlsx
+        // (Referencia | Cantidad | Observacion), para cargarlo en otros programas.
+        // Solo incluye los programas que quedaron bien. Observacion = programa | subcarpeta | observacion.
+        private void EscribirPiezasACortar(List<Programa> programas, Entrada e, string carpetaSalida)
+        {
+            if (programas.Count == 0)
+            {
+                return;
+            }
+            List<string[]> filas = new List<string[]>();
+            foreach (Programa p in programas)
+            {
+                foreach (Pieza pz in p.Piezas)
+                {
+                    string obs = p.Nombre + " | " + p.Subcarpeta + (pz.Observacion.Length > 0 ? " | " + pz.Observacion : "");
+                    filas.Add(new[] { pz.Referencia, pz.Cantidad.ToString(CultureInfo.InvariantCulture), obs });
+                }
+            }
+            string nombre = "PIEZAS_A_CORTAR_" + Seguro(Path.GetFileName(e.CarpetaPedido.TrimEnd('\\'))) + ".xlsx";
+            string ruta = Path.Combine(carpetaSalida, nombre);
+            try
+            {
+                string plantilla = _cfg.Archivo("FORMATO_CANTIDADES.xlsx");
+                if (File.Exists(plantilla))
+                {
+                    XlsxPlantilla.LlenarCantidades(plantilla, ruta, filas);
+                }
+                else
+                {
+                    _log("  (no se encontro FORMATO_CANTIDADES.xlsx junto al programa; se usa un formato simple)");
+                    filas.Insert(0, new[] { "Referencia", "Cantidad", "Observacion" });
+                    XlsxEscritor.Escribir(ruta, "Cantidades", filas);
+                }
+                _log("Piezas a cortar (" + filas.Count + " filas): " + nombre);
+            }
+            catch (Exception ex)
+            {
+                _log("ERROR al crear " + nombre + ": " + ex.Message);
             }
         }
 

@@ -2,6 +2,8 @@
 // - XlsxLector: lee la primera hoja (o una por nombre) como filas de texto.
 // - XlsxEscritor: escribe una hoja con todas las celdas como TEXTO (inlineStr),
 //   que es lo que exige el Part Nester (hace (string)Value2 en cada celda).
+// - XlsxPlantilla: llena la hoja "Cantidades" de FORMATO_CANTIDADES.xlsx conservando
+//   el resto del libro (hoja Instrucciones, validaciones, anchos, panel fijo).
 
 using System;
 using System.Collections.Generic;
@@ -10,6 +12,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace AutoBySoft
@@ -299,7 +302,7 @@ namespace AutoBySoft
             }
         }
 
-        private static string Esc(string s)
+        internal static string Esc(string s)
         {
             StringBuilder sb = new StringBuilder(s.Length);
             foreach (char ch in s)
@@ -321,6 +324,111 @@ namespace AutoBySoft
                 }
             }
             return sb.ToString();
+        }
+    }
+
+    public static class XlsxPlantilla
+    {
+        private const string Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        private const string NsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        private const int FilasMinimas = 500;    // filas con formato que trae la plantilla
+
+        // filas: { referencia, cantidad (vacia o entero), observacion }. Sin encabezado:
+        // la fila 1 de la plantilla (Referencia | Cantidad | Observacion) se conserva.
+        public static void LlenarCantidades(string plantilla, string destino, IList<string[]> filas)
+        {
+            string dir = Path.GetDirectoryName(destino);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.Copy(plantilla, destino, true);
+            File.SetAttributes(destino, FileAttributes.Normal);
+            using (FileStream fs = new FileStream(destino, FileMode.Open, FileAccess.ReadWrite))
+            using (ZipArchive zip = new ZipArchive(fs, ZipArchiveMode.Update))
+            {
+                string ruta = RutaHoja(zip, "Cantidades");
+                ZipArchiveEntry e = zip.GetEntry(ruta);
+                string xml;
+                using (StreamReader r = new StreamReader(e.Open(), Encoding.UTF8))
+                {
+                    xml = r.ReadToEnd();
+                }
+                xml = Llenar(xml, filas);
+                e.Delete();
+                ZipArchiveEntry n = zip.CreateEntry(ruta, CompressionLevel.Optimal);
+                using (StreamWriter w = new StreamWriter(n.Open(), new UTF8Encoding(false)))
+                {
+                    w.Write(xml);
+                }
+            }
+        }
+
+        private static string Llenar(string xml, IList<string[]> filas)
+        {
+            Match cab = Regex.Match(xml, "<row r=\"1\"[^>]*>.*?</row>", RegexOptions.Singleline);
+            if (!cab.Success)
+            {
+                throw new InvalidOperationException("La plantilla no tiene la fila de titulos en la hoja Cantidades.");
+            }
+            int ultima = Math.Max(FilasMinimas, filas.Count) + 1;
+            StringBuilder sb = new StringBuilder("<sheetData>");
+            sb.Append(cab.Value);
+            for (int i = 0; i < ultima - 1; i++)
+            {
+                int r = i + 2;
+                string[] f = i < filas.Count ? filas[i] : null;
+                sb.Append("<row r=\"").Append(r).Append("\">");
+                sb.Append(Celda("A", r, 2, f == null ? "" : f[0], false));
+                sb.Append(Celda("B", r, 3, f == null ? "" : f[1], true));
+                sb.Append(Celda("C", r, 2, f == null || f.Length < 3 ? "" : f[2], false));
+                sb.Append("</row>");
+            }
+            sb.Append("</sheetData>");
+            xml = Regex.Replace(xml, "<sheetData>.*</sheetData>", sb.ToString().Replace("$", "$$"), RegexOptions.Singleline);
+            xml = Regex.Replace(xml, "<dimension ref=\"[^\"]*\"", "<dimension ref=\"A1:C" + ultima + "\"");
+            // Validaciones (A2:A501, B2:B501) hasta la ultima fila escrita.
+            xml = Regex.Replace(xml, "sqref=\"([A-C])2:\\1\\d+\"", m => "sqref=\"" + m.Groups[1].Value + "2:" + m.Groups[1].Value + ultima + "\"");
+            return xml;
+        }
+
+        private static string Celda(string col, int fila, int estilo, string valor, bool numero)
+        {
+            string refe = col + fila;
+            valor = valor ?? "";
+            if (valor.Length == 0)
+            {
+                return "<c r=\"" + refe + "\" s=\"" + estilo + "\"/>";
+            }
+            double d;
+            if (numero && double.TryParse(valor, NumberStyles.Float, CultureInfo.InvariantCulture, out d))
+            {
+                return "<c r=\"" + refe + "\" s=\"" + estilo + "\"><v>" + d.ToString(CultureInfo.InvariantCulture) + "</v></c>";
+            }
+            return "<c r=\"" + refe + "\" s=\"" + estilo + "\" t=\"inlineStr\"><is><t xml:space=\"preserve\">" +
+                   XlsxEscritor.Esc(valor) + "</t></is></c>";
+        }
+
+        // Ruta dentro del zip de la hoja con ese nombre (workbook.xml + workbook.xml.rels).
+        private static string RutaHoja(ZipArchive zip, string nombre)
+        {
+            XDocument wb = Cargar(zip, "xl/workbook.xml");
+            XElement hoja = wb.Descendants(XName.Get("sheet", Ns))
+                .FirstOrDefault(x => string.Equals((string)x.Attribute("name"), nombre, StringComparison.OrdinalIgnoreCase));
+            if (hoja == null)
+            {
+                throw new InvalidOperationException("La plantilla no tiene la hoja '" + nombre + "'.");
+            }
+            string id = (string)hoja.Attribute(XName.Get("id", NsR));
+            XDocument rels = Cargar(zip, "xl/_rels/workbook.xml.rels");
+            XElement rel = rels.Root.Elements().First(x => (string)x.Attribute("Id") == id);
+            string target = ((string)rel.Attribute("Target")).TrimStart('/');
+            return target.StartsWith("xl/") ? target : "xl/" + target;
+        }
+
+        private static XDocument Cargar(ZipArchive zip, string ruta)
+        {
+            using (Stream s = zip.GetEntry(ruta).Open())
+            {
+                return XDocument.Load(s);
+            }
         }
     }
 }

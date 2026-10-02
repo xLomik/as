@@ -57,7 +57,12 @@ USO
      pestaña Problemas (errores en rojo, avisos en naranja). Corrige y repite.
   5. "Ejecutar". Al terminar, "Abrir resultados": carpeta _AutoBySoft_<fecha>
      dentro del pedido con: <PROGRAMA>_<subcarpeta>.xlsx, .pis, logs, registro.txt
-     y FILAS_PARA_LISTADO.xlsx.
+     FILAS_PARA_LISTADO.xlsx y PIEZAS_A_CORTAR_<pedido>.xlsx.
+     PIEZAS_A_CORTAR usa el mismo formato de FORMATO_CANTIDADES.xlsx (hoja
+     Cantidades: Referencia | Cantidad | Observacion) con todas las piezas de
+     los programas que quedaron bien. Observacion = programa | subcarpeta |
+     observacion original. Sirve para cargarlo en otros programas.
+     (FORMATO_CANTIDADES.xlsx debe estar junto a AutoBySoft.exe: es la plantilla.)
 
 SEGURIDAD
   - Subcarpetas con espesor mayor a ESPESOR_MAX (10 mm, en AutoBySoft.ini)
