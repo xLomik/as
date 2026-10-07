@@ -47,26 +47,21 @@ Los puntos 1 a 4 de la primera ronda ya están en "Requisitos confirmados". Sigu
 - Si la skill `apps-windows-cpp` está disponible, cárgala antes de escribir código: es de Camilo y trae las recetas de Win32, Excel a mano y carpetas de red. Lo imprescindible está repetido aquí.
 
 ## Construir y probar [M]
+Código en `src/`: `nucleo.cpp` (cálculo), `trabajo.cpp` (lectura de las tablas, archivo .ntb y textos del resultado; sin Win32), `main.cpp` (ventana), `pruebas.cpp`.
 ```bash
-apt-get update && apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 wine64 xdotool   # Ubuntu 24.04: GCC 13, wine 9.0 (con sudo si hace falta)
-# nucleo de calculo: nativo y con sanitizadores, para las pruebas
-g++ -std=c++17 -O1 -g -fsanitize=address,undefined nucleo.cpp pruebas.cpp -o pruebas && ./pruebas
-# programa para Windows
-x86_64-w64-mingw32-windres app.rc -O coff -o app.res
-x86_64-w64-mingw32-g++ -std=c++17 -municode -O2 main.cpp nucleo.cpp app.res -o NestTubo.exe -mwindows \
-  -static -static-libgcc -static-libstdc++ -lcomctl32 -lshlwapi -lole32 -loleaut32 -luuid -lgdi32 -luser32 -lshell32 -ladvapi32
-x86_64-w64-mingw32-strip NestTubo.exe
-x86_64-w64-mingw32-objdump -p NestTubo.exe | grep "DLL Name"      # solo deben salir DLL de Windows
+apt-get update && apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 wine64 xdotool xvfb imagemagick   # Ubuntu 24.04: GCC 13, wine 9.0
+./compilar.sh pruebas   # nucleo y trabajo nativos con sanitizadores + oraculo: debe terminar en "FALLOS: 0" (unos 20 s)
+./compilar.sh exe       # build/NestTubo.exe con mingw; imprime las DLL (solo deben salir DLL de Windows)
 # ejecutarlo de verdad y mirar la captura (wine no queda en el PATH)
 export DISPLAY=:99 WINEPREFIX=$HOME/.winep WINEDEBUG=-all
 pidof Xvfb >/dev/null || (setsid nohup Xvfb :99 -screen 0 1400x1000x24 >/dev/null 2>&1 &)
 [ -f $WINEPREFIX/system.reg ] || { WINEDLLOVERRIDES="mscoree,mshtml=" /usr/lib/wine/wine64 wineboot --init; /usr/lib/wine/wineserver -w; }
-(setsid nohup /usr/lib/wine/wine64 ./NestTubo.exe >/dev/null 2>&1 &); sleep 8; import -window root captura.png
+(setsid nohup /usr/lib/wine/wine64 build/NestTubo.exe >/dev/null 2>&1 &); sleep 8; import -window root captura.png
 /usr/lib/wine/wineserver -k
 ```
 - El prefijo de wine se crea una sola vez con `wineboot` y hay que esperarlo (45 s, unos 700 MB). Sin eso la captura muestra el aviso de wine, y matar wine a medias deja el prefijo roto ("could not load kernel32.dll"): se borra la carpeta y se repite.
 - `app.rc` incrusta un manifiesto (comctl32 v6 + `dpiAware`); sin él los controles salen con aspecto de Windows 95.
-- Sin gestor de ventanas no hay barra de título ni foco de teclado: con `xdotool` haz clic en el campo antes de escribir.
+- Sin gestor de ventanas no hay barra de título ni foco de teclado: con `xdotool` haz clic en el campo antes de escribir. `xdotool type` no escribe la ñ: para probar tildes, abre un .ntb (hay uno en `ejemplos/`).
 - Los literales `L"..."` con tildes funcionan si el fuente está en UTF-8. `std::thread` y `std::mutex` funcionan con `-static`.
 
 ## Modelo (un problema independiente por perfil)
@@ -74,7 +69,7 @@ pidof Xvfb >/dev/null || (setsid nohup Xvfb :99 -screen 0 1400x1000x24 >/dev/nul
 - Sumando la separación a ambos lados queda un bin packing clásico: pesos `w = largo + separación`, capacidad `C = util + separación`.
 - Todo en enteros: milímetros si los datos son enteros; décimas de milímetro si alguno trae decimal.
 - Una pieza con `largo > util` no cabe en ninguna barra: avisar con su nombre y dejarla fuera del cálculo.
-- Con los mismos parámetros, encajar ángulos solo puede pedir igual o menos barras que "solo largos". El riesgo real es el contrario: el punto 3 de "Por confirmar".
+- Con los mismos parámetros, encajar ángulos solo puede pedir igual o menos barras que "solo largos". El riesgo real es el contrario: el proveedor nestea con su programa y puede pedir más (de ahí el margen).
 
 ## Algoritmo
 Siempre hay una respuesta válida en milisegundos (paso 1); los pasos 2 y 3 la certifican o la mejoran. La referencia es `laboratorio/simplex_propio.py`.

@@ -9,6 +9,7 @@
 // 4. Plan por perfil: posiciones, ids, piezas que no caben, validador.
 // 5. Determinismo, tope de tiempo y cancelacion.
 // 6. Lectura de numeros con coma o punto.
+// 7. El trabajo digitado: lectura, errores, archivo y textos del resultado.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -23,6 +24,7 @@
 #include <vector>
 
 #include "nucleo.h"
+#include "trabajo.h"
 
 using namespace nt;
 
@@ -33,13 +35,13 @@ static void check(bool ok, const std::string& desc) {
     if (!ok) fallos++;
 }
 
-struct Trabajo {
+struct Bin {
     std::vector<i64> w;
     i64 C = 0;
 };
 
-static Trabajo transformar(const std::vector<i64>& largos, i64 L, i64 d, i64 z, i64 s) {
-    Trabajo t;
+static Bin transformar(const std::vector<i64>& largos, i64 L, i64 d, i64 z, i64 s) {
+    Bin t;
     t.C = L - d - z + s;
     for (i64 l : largos) t.w.push_back(l + s);
     return t;
@@ -138,7 +140,7 @@ static void casos_a_mano() {
          6000, 10, 230, 3, 23, 24},
     };
     for (const auto& c : casos) {
-        Trabajo t = transformar(c.largos, c.L, c.d, c.z, c.s);
+        Bin t = transformar(c.largos, c.L, c.d, c.z, c.s);
         ResultadoPesos r = resolver_pesos(t.w, t.C, 5);
         std::string motivo;
         bool ok = validar_pesos(t.w, t.C, r.barras, &motivo);
@@ -229,7 +231,7 @@ static void oraculo(const std::string& ruta) {
             for (int k = 0; k < q; k++) largos.push_back(l);
         }
         in >> cota >> metodo >> simples;
-        Trabajo t = transformar(largos, L, d, z, s);
+        Bin t = transformar(largos, L, d, z, s);
         auto t0 = std::chrono::steady_clock::now();
         ResultadoPesos r = resolver_pesos(t.w, t.C, 5);
         double seg = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -439,12 +441,99 @@ static void lectura_numeros() {
     check(todo, "coma o punto decimal, un decimal como mucho, sin signos ni letras");
 }
 
+
+static void trabajo_digitado() {
+    std::puts("== trabajo digitado");
+    Trabajo t;
+    t.perfiles = {perfil_nuevo("Cuadrado 40x40x2"), perfil_nuevo("Rect 50x25")};
+    t.perfiles[1].barra = "6000,0";
+    t.piezas = {{"cuadrado 40x40x2", "Larguero", "1250", "", "45", "8"},
+                {"Rect 50x25", "Travesano", "640,5", "0", "0", "12"},
+                {"", "", "", "", "", ""},
+                {"Cuadrado 40x40x2", "", "2000", "", "", "3"}};
+    std::vector<ProblemaPerfil> pr;
+    std::vector<std::string> err;
+    bool ok = preparar(t, pr, err);
+    check(ok && pr.size() == 2, "dos perfiles con piezas -> dos problemas (fila vacia ignorada, perfil sin distinguir mayusculas)");
+    if (ok && pr.size() == 2) {
+        check(pr[0].escala == 1 && pr[0].param.largo_barra == 6000 && pr[0].param.zona_muerta == 230 &&
+                  pr[0].piezas.size() == 2 && pr[0].piezas[1].id == 3 && pr[0].nombres[3] == "Fila 4",
+              "perfil entero en mm; pieza sin nombre se llama por su fila");
+        check(pr[1].escala == 10 && pr[1].param.largo_barra == 60000 && pr[1].param.separacion == 30 &&
+                  pr[1].piezas[0].largo == 6405,
+              "perfil con un decimal -> decimas de mm");
+    }
+    auto con_error = [&](Trabajo tt, const std::string& busca, const std::string& desc) {
+        std::vector<ProblemaPerfil> p2;
+        std::vector<std::string> e2;
+        bool ok2 = preparar(tt, p2, e2);
+        bool hay = false;
+        for (const auto& e : e2) hay |= e.find(busca) != std::string::npos;
+        check(!ok2 && hay, desc + " -> " + (e2.empty() ? std::string("(sin error)") : e2[0]));
+    };
+    Trabajo m = t;
+    m.piezas[0].perfil = "Redondo 2";
+    con_error(m, "no está en la tabla", "perfil que no existe");
+    m = t;
+    m.piezas[0].largo = "12a";
+    con_error(m, "no es un número", "largo con letras");
+    m = t;
+    m.piezas[0].angulo1 = "90";
+    con_error(m, "menor que 90", "angulo de 90 (0 = recto)");
+    m = t;
+    m.piezas[0].cantidad = "0";
+    con_error(m, "entero entre 1", "cantidad 0");
+    m = t;
+    m.piezas[0].cantidad = "2,5";
+    con_error(m, "entero entre 1", "cantidad con decimal");
+    m = t;
+    m.perfiles.push_back(perfil_nuevo("RECT 50X25"));
+    con_error(m, "repetido", "perfil repetido");
+    m = t;
+    m.perfiles[0].zona_muerta = "5990";
+    con_error(m, "se comen toda la barra", "zona muerta mayor que la barra");
+    m = t;
+    m.piezas.clear();
+    con_error(m, "No hay piezas", "sin piezas");
+
+    // archivo: ida y vuelta, y archivo viejo con campos de menos
+    Trabajo r;
+    std::string error;
+    check(de_texto(a_texto(t), r, error) && a_texto(r) == a_texto(t) && r.piezas.size() == 3,
+          "archivo: guardar y abrir deja lo mismo (sin filas vacias)");
+    check(de_texto("NESTTUBO\t1\r\n[perfiles]\r\nViejo\t\t6000\r\n[piezas]\r\nViejo\tA\t100\r\n", r, error) &&
+              r.perfiles[0].zona_muerta == "230" && r.perfiles[0].margen == "0" && r.piezas[0].cantidad.empty(),
+          "archivo viejo con campos de menos: se rellenan los del perfil");
+    bool ajeno = !de_texto("hola", r, error);
+    check(ajeno, "archivo ajeno: rechazado (" + error + ")");
+
+    // textos del resultado
+    Parametros p{6000, 10, 230, 3};
+    ResultadoPerfil res;
+    res.prob.nombre = "Cuadrado";
+    res.prob.param = p;
+    res.prob.margen = 1;
+    res.prob.piezas = {{0, 2800, 10}, {1, 7000, 1}};
+    res.prob.nombres = {"Poste", "Viga"};
+    res.plan = calcular_perfil(res.prob.piezas, p);
+    res.valido = validar_plan(res.prob.piezas, p, res.plan, &res.motivo);
+    auto fr = fila_resumen(res);
+    check(fr[2] == "6" && fr[3] == "5" && fr[5] == "10 (+1 no caben)" && fr[7] == "sí",
+          "resumen: 5 barras + margen 1 = 6 a enviar; minimo demostrado");
+    auto fp = filas_plan(res);
+    std::vector<std::string> f0{"1-5 (× 5)", "Poste", "2800", "10", "2810", "387"}, f1{"", "Poste", "2800", "2813", "5613", ""};
+    check(fp.size() == 3 && fp[0] == f0 && fp[1] == f1 && fp[2][0] == "NO CABE" && fp[2][1] == "Viga",
+          "plan: barras iguales agrupadas, inicio y fin, sobrante 6000 - 5613 = 387, la que no cabe al final");
+    check(medida(12345, 10) == "1234,5" && medida(12340, 10) == "1234" && medida(77, 1) == "77", "medidas con coma decimal");
+}
+
 int main(int argc, char** argv) {
     std::string ruta = argc > 1 ? argv[1] : "../laboratorio/casos_oraculo.txt";
     casos_a_mano();
     contra_branch_and_bound();
     plan_por_perfil();
     lectura_numeros();
+    trabajo_digitado();
     determinismo_y_tiempo(ruta);
     oraculo(ruta);
     std::printf("\nFALLOS: %d\n", fallos);

@@ -1,0 +1,60 @@
+NestTubo - cuántas barras de tubo enviar a corte láser
+=======================================================
+Versión 0.1 (primera entrega, 2026-10-07)
+
+Qué hace
+--------
+Digitas las piezas de un pedido (perfil, nombre, largo, ángulos y cantidad) y
+el programa calcula cuántas barras de cada perfil hay que enviar al proveedor,
+con el plan de qué piezas salen de cada barra.
+
+Cómo se usa
+-----------
+1. Doble clic en NestTubo.exe. Windows mostrará un aviso de SmartScreen porque
+   el programa no está firmado: "Más información" y luego "Ejecutar de todas
+   formas". Solo pasa la primera vez.
+2. Tabla "Perfiles": un perfil por fila. Al escribir el nombre se llenan los
+   valores iniciales (barra 6000, despunte 10, zona muerta 230, separación 3,
+   margen 0). Corrígelos si tu perfil o el proveedor usan otros.
+   - Margen = barras extra que quieres enviar por seguridad, porque el
+     proveedor nestea con su propio programa.
+3. Tabla "Piezas del pedido": una pieza por fila.
+   - Largo: de punta a punta, en mm. Acepta coma o punto y un decimal.
+   - Ángulo 1 y 2: 0 = corte recto, 45 = inglete. En blanco cuenta como 0.
+     Por ahora no cambian el cálculo; servirán para el DXF.
+   - Si escribes un perfil que no está en la tabla de perfiles, se agrega solo.
+   - Al empezar una fila nueva se copia el perfil de la fila de arriba.
+4. "Calcular barras". Arriba a la derecha sale el resumen por perfil; al
+   escoger un perfil, abajo a la derecha sale su plan por barra.
+
+Teclas: clic en una celda para editarla; Enter baja, Tab pasa a la derecha,
+Esc cancela lo escrito, Supr quita las filas seleccionadas.
+
+Qué significa el resultado
+--------------------------
+- "Barras a enviar" = mínimo calculado + margen.
+- "Mínimo demostrado: sí" quiere decir que no existe ninguna forma de usar
+  menos barras con esos datos.
+- "no: podrían sobrar hasta N" quiere decir que el programa no pudo demostrar
+  que es el mínimo; como mucho sobran N barras.
+- Una pieza más larga que el útil de la barra (barra - despunte - zona muerta)
+  no entra en el cálculo y aparece como "NO CABE" al final del plan.
+- Cada perfil tiene un tope de 20 segundos de cálculo; si se acaba, se muestra
+  lo mejor encontrado y se avisa. "Cancelar" hace lo mismo.
+
+Dónde quedan los datos
+----------------------
+- "Guardar" deja el trabajo en un archivo .ntb (texto) en la carpeta que elijas.
+- La tabla de perfiles se recuerda entre trabajos en
+  %APPDATA%\NestTubo\perfiles.ntb. "Nuevo" borra las piezas y deja los perfiles.
+
+Todavía no tiene
+----------------
+- Salidas en PDF, Excel y DXF (siguiente entrega).
+- Carpeta de datos fija (de red con respaldo local): por ahora cada trabajo se
+  guarda donde elijas.
+
+Compilar desde el código
+------------------------
+No hace falta. Si algún día quieres hacerlo en Windows: instala MinGW-w64,
+ponlo en el PATH y haz doble clic en build.bat.
