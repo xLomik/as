@@ -425,7 +425,7 @@ void fin_calculo(Resultado* res) {
         total += x.barras_enviar();
         no_dem += !x.plan.demostrado;
         cortados += x.plan.estado != Estado::completo;
-        no_caben += (int)x.plan.no_caben.size();
+        no_caben += (int)x.plan.piezas_no_caben;
     }
     std::wstring t = L"Listo: " + std::to_wstring(total) + L" barras a enviar en " + std::to_wstring(app.resultados.size()) +
                      (app.resultados.size() == 1 ? L" perfil." : L" perfiles.");

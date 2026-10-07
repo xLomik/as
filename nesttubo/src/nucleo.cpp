@@ -87,42 +87,58 @@ i64 cota_l2(const std::vector<i64>& w, i64 C) {
     return mejor;
 }
 
+// Primer ajuste: la primera barra (la de menor indice) donde cabe. Un arbol de
+// maximos sobre lo que le queda a cada barra la encuentra en O(log n); da lo
+// mismo que recorrer las barras una por una.
 std::vector<std::vector<int>> ffd(const std::vector<i64>& w, i64 C) {
     std::vector<std::vector<int>> barras;
-    std::vector<i64> resto;
+    size_t hojas = 1;
+    while (hojas < w.size()) hojas *= 2;
+    std::vector<i64> arbol(2 * hojas, -1);   // -1: barra que aun no existe
+    auto poner = [&](size_t b, i64 v) {
+        size_t q = b + hojas;
+        arbol[q] = v;
+        for (q /= 2; q >= 1; q /= 2) arbol[q] = std::max(arbol[2 * q], arbol[2 * q + 1]);
+    };
     for (int i : orden_decreciente(w)) {
-        size_t b = 0;
-        while (b < barras.size() && resto[b] < w[i]) b++;
+        size_t b;
+        if (arbol[1] < w[i]) b = barras.size();   // no cabe en ninguna: barra nueva
+        else {
+            size_t q = 1;
+            while (q < hojas) q = arbol[2 * q] >= w[i] ? 2 * q : 2 * q + 1;
+            b = q - hojas;
+        }
         if (b == barras.size()) {
             barras.push_back({i});
-            resto.push_back(C - w[i]);
+            poner(b, C - w[i]);
         } else {
             barras[b].push_back(i);
-            resto[b] -= w[i];
+            poner(b, arbol[b + hojas] - w[i]);
         }
     }
     return barras;
 }
 
+// Mejor ajuste: la barra donde queda menos hueco; empate -> la de menor indice.
 std::vector<std::vector<int>> bfd(const std::vector<i64>& w, i64 C) {
     std::vector<std::vector<int>> barras;
-    std::vector<i64> resto;
+    std::set<std::pair<i64, int>> libres;   // (lo que le queda, barra)
     for (int i : orden_decreciente(w)) {
-        int mb = -1;
-        for (size_t b = 0; b < barras.size(); b++)
-            if (resto[b] >= w[i] && (mb < 0 || resto[b] < resto[mb])) mb = (int)b;
-        if (mb < 0) {
+        auto it = libres.lower_bound({w[i], std::numeric_limits<int>::min()});
+        if (it == libres.end()) {
+            libres.insert({C - w[i], (int)barras.size()});
             barras.push_back({i});
-            resto.push_back(C - w[i]);
         } else {
-            barras[mb].push_back(i);
-            resto[mb] -= w[i];
+            std::pair<i64, int> x = *it;
+            libres.erase(it);
+            barras[x.second].push_back(i);
+            libres.insert({x.first - w[i], x.second});
         }
     }
     return barras;
 }
 
-std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C) {
+std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C, const Control* control) {
     // Una barra a la vez: la pieza pendiente mas larga va fija y se completa con
     // el subconjunto que deja menos hueco (suma de subconjuntos exacta).
     // Para cada suma c se guarda la primera pieza que la alcanza, como en modelo.py.
@@ -130,6 +146,7 @@ std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C) {
     std::vector<std::vector<int>> barras;
     std::vector<int> quien;
     while (!pend.empty()) {
+        if (control && control->vencido()) return {};   // a medias no sirve: quien llama usa las otras
         int fijo = pend[0];
         i64 resto = C - w[fijo];
         size_t n = (size_t)resto + 1;
@@ -138,9 +155,19 @@ std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C) {
         alcanza.set(0);
         size_t palabras = alcanza.p.size();
         uint64_t mascara = (n % 64) ? ((uint64_t(1) << (n % 64)) - 1) : ~uint64_t(0);
+        i64 ultimo = -1, copias = 0;
         for (size_t k = 1; k < pend.size(); k++) {
             i64 p = w[pend[k]];
             if (p > resto) continue;
+            // pend va de mayor a menor: las piezas iguales quedan seguidas. La copia
+            // numero t de un largo solo alcanza sumas nuevas >= t * p; si eso pasa
+            // del resto no cambia nada y se salta (mismo resultado, mucho menos trabajo).
+            if (p == ultimo) copias++;
+            else {
+                ultimo = p;
+                copias = 1;
+            }
+            if (copias > resto / p) continue;
             // nuevo = (alcanza << p) & ~alcanza
             size_t ws = (size_t)p >> 6, bs = (size_t)p & 63;
             for (size_t q = palabras; q-- > 0;) {
@@ -427,13 +454,20 @@ ResultadoLP lp_patrones(const std::vector<i64>& pesos, const std::vector<int>& d
 
 namespace {
 
-// Las tres heuristicas simples sobre lo pendiente, como barras de pesos.
-std::vector<Barras> simples(const std::vector<i64>& pesos, const std::vector<int>& dem, i64 cap) {
+// Las tres heuristicas simples sobre lo pendiente, como barras de pesos. FFD y
+// BFD siempre terminan rapido; el llenado se salta si el tiempo ya se acabo o
+// si se acaba mientras corre.
+std::vector<Barras> simples(const std::vector<i64>& pesos, const std::vector<int>& dem, i64 cap, const Control* control) {
     std::vector<i64> resto;
     for (size_t j = 0; j < pesos.size(); j++)
         for (int k = 0; k < dem[j]; k++) resto.push_back(pesos[j]);
+    std::vector<std::vector<std::vector<int>>> hs = {ffd(resto, cap), bfd(resto, cap)};
+    if (!(control && control->vencido())) {
+        auto ll = llenado(resto, cap, control);
+        if (!ll.empty()) hs.push_back(std::move(ll));
+    }
     std::vector<Barras> sols;
-    for (auto&& sol : {ffd(resto, cap), bfd(resto, cap), llenado(resto, cap)}) {
+    for (auto&& sol : hs) {
         Barras b;
         for (const auto& barra : sol) {
             std::vector<i64> pb;
@@ -486,7 +520,7 @@ Pasada una_pasada(const std::vector<i64>& pesos, std::vector<int> dem, i64 cap, 
             ds.push_back(dem[j]);
         }
         // candidato: lo decidido hasta aqui + cierre con heuristicas simples
-        std::vector<Barras> cierres = simples(ps, ds, cap);
+        std::vector<Barras> cierres = simples(ps, ds, cap, control);
         size_t kc = 0;
         for (size_t k = 1; k < cierres.size(); k++)
             if (cierres[k].size() < cierres[kc].size()) kc = k;
@@ -647,6 +681,7 @@ Plan calcular_perfil(const std::vector<Pieza>& piezas, const Parametros& p, int 
         if (pz.cantidad <= 0) throw std::invalid_argument("hay una pieza con cantidad cero o negativa");
         if (pz.largo > util) {
             plan.no_caben.push_back(pz.id);
+            plan.piezas_no_caben += pz.cantidad;
             continue;
         }
         for (int k = 0; k < pz.cantidad; k++) {
@@ -705,15 +740,19 @@ bool validar_plan(const std::vector<Pieza>& piezas, const Parametros& p, const P
     std::map<int, i64> largo_de;
     std::map<int, long long> pedido, puesto;
     std::set<int> fuera;
+    i64 unidades_fuera = 0;
     for (const Pieza& pz : piezas) {
         if (largo_de.count(pz.id)) return fallo("id de pieza repetido: " + std::to_string(pz.id));
         largo_de[pz.id] = pz.largo;
-        if (pz.largo > util) fuera.insert(pz.id);
-        else pedido[pz.id] += pz.cantidad;
+        if (pz.largo > util) {
+            fuera.insert(pz.id);
+            unidades_fuera += pz.cantidad;
+        } else pedido[pz.id] += pz.cantidad;
     }
     std::set<int> no_caben(plan.no_caben.begin(), plan.no_caben.end());
     if (no_caben != fuera || no_caben.size() != plan.no_caben.size())
         return fallo("la lista de piezas que no caben no es la correcta");
+    if (plan.piezas_no_caben != unidades_fuera) return fallo("la cantidad de piezas que no caben no es la correcta");
     for (size_t k = 0; k < plan.barras.size(); k++) {
         const auto& b = plan.barras[k];
         std::string nb = "barra " + std::to_string(k + 1);

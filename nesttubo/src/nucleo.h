@@ -64,7 +64,8 @@ i64 cota_l1(const std::vector<i64>& w, i64 C);
 i64 cota_l2(const std::vector<i64>& w, i64 C);
 std::vector<std::vector<int>> ffd(const std::vector<i64>& w, i64 C);
 std::vector<std::vector<int>> bfd(const std::vector<i64>& w, i64 C);
-std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C);
+// Con control: si el tiempo se acaba o se cancela a medias devuelve una lista vacia.
+std::vector<std::vector<int>> llenado(const std::vector<i64>& w, i64 C, const Control* control = nullptr);
 
 // Mochila acotada entera: max sum(v_j a_j), sum(w_j a_j) <= cap, 0 <= a_j <= tope_j.
 double mochila(const std::vector<double>& valores, const std::vector<i64>& pesos,
@@ -127,6 +128,7 @@ struct Plan {
     Parametros parametros;
     std::vector<BarraPlan> barras;
     std::vector<int> no_caben;   // ids de piezas mas largas que el util: fuera del calculo
+    i64 piezas_no_caben = 0;     // cuantas unidades quedan fuera (suma de sus cantidades)
     i64 cota = 0;                // cota inferior de barras
     i64 cota_lp = 0;
     bool demostrado = false;     // barras == cota

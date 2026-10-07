@@ -10,6 +10,8 @@
 // 5. Determinismo, tope de tiempo y cancelacion.
 // 6. Lectura de numeros con coma o punto.
 // 7. El trabajo digitado: lectura, errores, archivo y textos del resultado.
+// 7b. Heuristicas rapidas: mismo resultado que las versiones lentas de
+//    referencia, y pedidos enormes respetan el tope y la cancelacion.
 // 8. Salidas: PDF, Excel y DXF (estructura; la lectura con programas aparte va
 //    en compilar.sh salidas).
 //
@@ -22,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <thread>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -302,7 +305,8 @@ static void plan_por_perfil() {
     std::string motivo;
     bool valido = validar_plan(piezas, p, plan, &motivo);
     check(valido, "plan valido: " + motivo);
-    check(plan.no_caben.size() == 1 && plan.no_caben[0] == 3, "la pieza de 6000 no cabe en util 5760 y queda fuera");
+    check(plan.no_caben.size() == 1 && plan.no_caben[0] == 3 && plan.piezas_no_caben == 1,
+          "la pieza de 6000 no cabe en util 5760 y queda fuera");
     check(plan.piezas_colocadas == 10, "10 piezas colocadas");
     // 4x2000 + 2x1500 + 4x900 = 14600 mm; con separacion caben en 3 barras (cota L1 = 3)
     check(plan.barras.size() == 3 && plan.demostrado, "3 barras, minimo demostrado");
@@ -333,6 +337,7 @@ static void plan_por_perfil() {
         {"cambiar el id", [](Plan& q) { q.barras[0].piezas[0].id = 99; }},
         {"vaciar una barra", [](Plan& q) { q.barras.push_back(BarraPlan{}); }},
         {"olvidar la que no cabe", [](Plan& q) { q.no_caben.clear(); }},
+        {"contar mal las que no caben", [](Plan& q) { q.piezas_no_caben = 5; }},
         {"meter la que no cabe", [](Plan& q) { q.barras[0].piezas.push_back({3, 6000, 10, 6010}); }},
         {"pasar a la zona muerta",
          [](Plan& q) {
@@ -531,6 +536,14 @@ static void trabajo_digitado() {
     check(fp.size() == 3 && fp[0] == f0 && fp[1] == f1 && fp[2][0] == "NO CABE" && fp[2][1] == "Viga",
           "plan: barras iguales agrupadas, inicio y fin, sobrante 6000 - 5613 = 387, la que no cabe al final");
     check(medida(12345, 10) == "1234,5" && medida(12340, 10) == "1234" && medida(77, 1) == "77", "medidas con coma decimal");
+    // las que no caben se cuentan por unidades, no por filas
+    res.prob.piezas = {{0, 2800, 10}, {1, 7000, 8}};
+    res.plan = calcular_perfil(res.prob.piezas, p);
+    res.valido = validar_plan(res.prob.piezas, p, res.plan, &res.motivo);
+    fr = fila_resumen(res);
+    fp = filas_plan(res);
+    check(res.valido && fr[5] == "10 (+8 no caben)" && fp.back()[1] == "Viga (× 8)",
+          "8 vigas que no caben: \"+8 no caben\" y \"Viga (× 8)\" en el plan (" + fr[5] + ")");
 }
 
 static const char* TRABAJO_EJEMPLO =
@@ -568,6 +581,146 @@ static int contar(const std::string& s, const std::string& que) {
     int n = 0;
     for (size_t i = s.find(que); i != std::string::npos; i = s.find(que, i + 1)) n++;
     return n;
+}
+
+// Versiones directas de FFD, BFD y llenado, como en modelo.py: la referencia
+// contra la que se comparan las de nucleo.cpp (arbol, conjunto y copias saltadas).
+static std::vector<int> orden_ref(const std::vector<i64>& w) {
+    std::vector<int> o(w.size());
+    for (size_t i = 0; i < o.size(); i++) o[i] = (int)i;
+    std::stable_sort(o.begin(), o.end(), [&](int a, int b) { return w[a] > w[b]; });
+    return o;
+}
+static std::vector<std::vector<int>> ffd_ref(const std::vector<i64>& w, i64 C) {
+    std::vector<std::vector<int>> barras;
+    std::vector<i64> resto;
+    for (int i : orden_ref(w)) {
+        size_t b = 0;
+        while (b < barras.size() && resto[b] < w[i]) b++;
+        if (b == barras.size()) { barras.push_back({i}); resto.push_back(C - w[i]); }
+        else { barras[b].push_back(i); resto[b] -= w[i]; }
+    }
+    return barras;
+}
+static std::vector<std::vector<int>> bfd_ref(const std::vector<i64>& w, i64 C) {
+    std::vector<std::vector<int>> barras;
+    std::vector<i64> resto;
+    for (int i : orden_ref(w)) {
+        int mb = -1;
+        for (size_t b = 0; b < barras.size(); b++)
+            if (resto[b] >= w[i] && (mb < 0 || resto[b] < resto[mb])) mb = (int)b;
+        if (mb < 0) { barras.push_back({i}); resto.push_back(C - w[i]); }
+        else { barras[mb].push_back(i); resto[mb] -= w[i]; }
+    }
+    return barras;
+}
+static std::vector<std::vector<int>> llenado_ref(const std::vector<i64>& w, i64 C) {
+    std::vector<int> pend = orden_ref(w);
+    std::vector<std::vector<int>> barras;
+    while (!pend.empty()) {
+        i64 resto = C - w[pend[0]];
+        std::vector<char> alc((size_t)resto + 1, 0);
+        std::vector<int> quien((size_t)resto + 1, -1);
+        alc[0] = 1;
+        for (size_t k = 1; k < pend.size(); k++) {
+            i64 p = w[pend[k]];
+            for (i64 c = resto; c >= p; c--)   // de arriba abajo: cada pieza una vez
+                if (!alc[c] && alc[c - p]) { alc[c] = 1; quien[c] = (int)k; }
+        }
+        i64 c = resto;
+        while (c > 0 && !alc[c]) c--;
+        std::vector<int> elegido{pend[0]};
+        std::vector<char> usado(pend.size(), 0);
+        usado[0] = 1;
+        while (c > 0) {
+            int k = quien[c];
+            elegido.push_back(pend[k]);
+            usado[k] = 1;
+            c -= w[pend[k]];
+        }
+        barras.push_back(elegido);
+        std::vector<int> quedan;
+        for (size_t k = 0; k < pend.size(); k++)
+            if (!usado[k]) quedan.push_back(pend[k]);
+        pend.swap(quedan);
+    }
+    return barras;
+}
+
+static double segundos_desde(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+}
+
+static void heuristicas_rapidas() {
+    std::puts("== heuristicas rapidas");
+    // 1. Mismo resultado, barra por barra, que las versiones directas
+    uint64_t s = 12345;
+    auto azar = [&](uint64_t n) {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        return (s >> 33) % n;
+    };
+    int distintos = 0, casos = 0;
+    for (int t = 0; t < 800; t++) {
+        i64 C = t % 4 == 0 ? 57630 : (i64)(50 + azar(6000));
+        int tipos = 1 + (int)azar(t % 3 == 0 ? 4 : 25);
+        std::vector<i64> largos;
+        for (int k = 0; k < tipos; k++) largos.push_back(1 + (i64)azar((uint64_t)C));
+        if (t % 5 == 0) largos.push_back(C);            // pieza que llena la barra
+        if (t % 7 == 0) largos.push_back(C / 2);        // mitades exactas
+        std::vector<i64> w;
+        int n = 1 + (int)azar(t % 4 == 0 ? 60 : 160);
+        for (int i = 0; i < n; i++) w.push_back(largos[azar(largos.size())]);
+        casos++;
+        if (ffd(w, C) != ffd_ref(w, C) || bfd(w, C) != bfd_ref(w, C) || llenado(w, C) != llenado_ref(w, C)) distintos++;
+    }
+    check(distintos == 0, std::to_string(casos) + " listas al azar: FFD, BFD y llenado dan lo mismo que las versiones directas (" +
+                              std::to_string(distintos) + " distintas)");
+
+    // 2. Pedidos enormes: el tope y la cancelacion se respetan y el plan es valido
+    Parametros pd{60000, 100, 2300, 30};   // en decimas de mm
+    std::vector<Pieza> grande;
+    i64 largos[] = {25000, 12000, 9000, 18000, 7000};
+    for (int k = 0; k < 5; k++) grande.push_back({k, largos[k], 4000});   // 20.000 piezas
+    Control tope;
+    tope.limite = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+    auto t0 = std::chrono::steady_clock::now();
+    Plan g = calcular_perfil(grande, pd, 5, &tope);
+    double t = segundos_desde(t0);
+    char buf[240];
+    std::snprintf(buf, sizeof buf, "20.000 piezas en decimas, tope 1 s: %.2f s, %zu barras, cota %lld", t, g.barras.size(),
+                  (long long)g.cota);
+    check(validar_plan(grande, pd, g) && t < 2.5, buf);
+
+#ifdef __SANITIZE_ADDRESS__
+    const int cuantas = 50000;   // con sanitizadores todo va unas 8 veces mas lento
+#else
+    const int cuantas = 100000;  // la cantidad maxima de una fila en la ventana
+#endif
+    std::vector<Pieza> fila{{0, 500, cuantas}};
+    Parametros pm{6000, 10, 230, 3};
+    Control tope20;
+    tope20.limite = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    t0 = std::chrono::steady_clock::now();
+    Plan f = calcular_perfil(fila, pm, 5, &tope20);
+    t = segundos_desde(t0);
+    std::snprintf(buf, sizeof buf, "%d piezas de 500 mm, tope 20 s: %.2f s, %zu barras, cota %lld", cuantas, t, f.barras.size(),
+                  (long long)f.cota);
+    check(validar_plan(fila, pm, f) && f.estado == Estado::completo && f.demostrado && t < 20, buf);
+
+    std::atomic<bool> cancelar{false};
+    Control cc;
+    cc.cancelar = &cancelar;
+    std::vector<Pieza> otra;
+    for (int k = 0; k < 5; k++) otra.push_back({k, largos[k] + 1, 8000});   // 40.000 piezas
+    Plan c;
+    std::thread hilo([&] { c = calcular_perfil(otra, pd, 5, &cc); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    t0 = std::chrono::steady_clock::now();
+    cancelar = true;
+    hilo.join();
+    t = segundos_desde(t0);
+    std::snprintf(buf, sizeof buf, "40.000 piezas, cancelar a los 0,1 s: responde en %.2f s con un plan valido", t);
+    check(validar_plan(otra, pd, c) && t < 1.5, buf);
 }
 
 static void salidas() {
@@ -704,6 +857,7 @@ int main(int argc, char** argv) {
     plan_por_perfil();
     lectura_numeros();
     trabajo_digitado();
+    heuristicas_rapidas();
     salidas();
     determinismo_y_tiempo(ruta);
     oraculo(ruta);

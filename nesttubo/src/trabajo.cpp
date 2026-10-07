@@ -198,6 +198,19 @@ bool preparar(const Trabajo& t, std::vector<ProblemaPerfil>& problemas, std::vec
 // ---------------------------------------------------------------------------
 // Textos del resultado
 
+const Pieza* pieza_de(const ProblemaPerfil& p, int id) {
+    for (const Pieza& pz : p.piezas)
+        if (pz.id == id) return &pz;
+    return nullptr;
+}
+
+std::string nombre_no_cabe(const ProblemaPerfil& p, int id) {
+    const Pieza* pz = pieza_de(p, id);
+    std::string n = id >= 0 && id < (int)p.nombres.size() ? p.nombres[id] : "?";
+    if (pz && pz->cantidad > 1) n += " (× " + std::to_string(pz->cantidad) + ")";
+    return n;
+}
+
 ResultadoPerfil resolver(const ProblemaPerfil& prob, const Control* control) {
     ResultadoPerfil r;
     r.prob = prob;
@@ -230,7 +243,7 @@ std::vector<std::string> fila_resumen(const ResultadoPerfil& r) {
     if (p.estado == Estado::tiempo_agotado) dem += " (tiempo agotado)";
     if (p.estado == Estado::cancelado) dem += " (cancelado)";
     std::string piezas = miles(p.piezas_colocadas);
-    if (!p.no_caben.empty()) piezas += " (+" + std::to_string(p.no_caben.size()) + " no caben)";
+    if (p.piezas_no_caben) piezas += " (+" + miles(p.piezas_no_caben) + " no caben)";
     return {r.prob.nombre,
             medida(r.prob.param.largo_barra, r.prob.escala),
             miles(r.barras_enviar()),
@@ -264,10 +277,8 @@ std::vector<std::vector<std::string>> filas_plan(const ResultadoPerfil& r) {
         }
     }
     for (int id : p.no_caben) {
-        i64 largo = 0;
-        for (const Pieza& pz : r.prob.piezas)
-            if (pz.id == id) largo = pz.largo;
-        filas.push_back({"NO CABE", r.prob.nombres[id], medida(largo, e), "", "",
+        const Pieza* pz = pieza_de(r.prob, id);
+        filas.push_back({"NO CABE", nombre_no_cabe(r.prob, id), medida(pz ? pz->largo : 0, e), "", "",
                          "más largo que el útil (" + medida(p.parametros.util(), e) + ")"});
     }
     return filas;

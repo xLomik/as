@@ -313,13 +313,14 @@ std::string informe_pdf(const std::vector<ResultadoPerfil>& rs, const std::strin
         }
         for (int id : r.plan.no_caben) {
             if (!aviso) { pdf.texto(X, y, 11, true, "Avisos"); y += 15; aviso = true; }
-            i64 largo = 0;
-            for (const auto& pz : r.prob.piezas)
-                if (pz.id == id) largo = pz.largo;
+            const Pieza* pz = pieza_de(r.prob, id);
+            i64 largo = pz ? pz->largo : 0, cant = pz ? pz->cantidad : 1;
+            std::string que = cant > 1 ? "las " + std::to_string(cant) + " piezas \"" + r.prob.nombres[id] + "\" de " +
+                                             medida(largo, r.prob.escala) + " mm no caben"
+                                       : "la pieza \"" + r.prob.nombres[id] + "\" de " + medida(largo, r.prob.escala) + " mm no cabe";
             pdf.texto(X, y, 8.5, false,
-                      pdf.ajustar(r.prob.nombre + ": la pieza \"" + r.prob.nombres[id] + "\" de " + medida(largo, r.prob.escala) +
-                                      " mm no cabe en el útil de " + medida(r.plan.parametros.util(), r.prob.escala) +
-                                      " mm y quedó fuera del cálculo.",
+                      pdf.ajustar(r.prob.nombre + ": " + que + " en el útil de " + medida(r.plan.parametros.util(), r.prob.escala) +
+                                      " mm y " + (cant > 1 ? "quedaron" : "quedó") + " fuera del cálculo.",
                                   8.5, false, AW), 0, 0.15);
             y += 12;
         }
@@ -389,11 +390,11 @@ std::string informe_pdf(const std::vector<ResultadoPerfil>& rs, const std::strin
                 pie(pdf, trabajo, fecha);
                 cabecera(true);
             }
-            i64 largo = 0;
-            for (const auto& pz : r.prob.piezas)
-                if (pz.id == id) largo = pz.largo;
-            pdf.texto(X, y, 9, true, pdf.ajustar("No cabe: " + r.prob.nombres[id] + " (" + medida(largo, e) + " mm, más largo que el útil)",
-                                                   9, true, AW));
+            const Pieza* pz = pieza_de(r.prob, id);
+            pdf.texto(X, y, 9, true,
+                      pdf.ajustar("No cabe: " + nombre_no_cabe(r.prob, id) + ", " + medida(pz ? pz->largo : 0, e) +
+                                      " mm, más largo que el útil",
+                                  9, true, AW));
             y += 14;
         }
         pie(pdf, trabajo, fecha);
@@ -535,7 +536,7 @@ std::string informe_xlsx(const std::vector<ResultadoPerfil>& rs, const std::stri
         std::string dem = r.plan.demostrado ? "sí" : "no: podrían sobrar hasta " + std::to_string(r.plan.sobran_hasta());
         if (r.plan.estado != Estado::completo) dem += " (cortado por tiempo o cancelación)";
         res.push_back({T(p.nombre), N(p.param.largo_barra / e), N((double)r.barras_enviar(), 3), N((double)r.plan.barras.size()),
-                       N(p.margen), N((double)r.plan.piezas_colocadas), N((double)r.plan.no_caben.size()),
+                       N(p.margen), N((double)r.plan.piezas_colocadas), N((double)r.plan.piezas_no_caben),
                        N(r.plan.aprovechamiento(), 2), T(dem), N(p.param.despunte / e), N(p.param.zona_muerta / e),
                        N(p.param.separacion / e), N(p.param.util() / e), p.cara ? N(p.cara / e) : V()});
     }
@@ -562,10 +563,9 @@ std::string informe_xlsx(const std::vector<ResultadoPerfil>& rs, const std::stri
             }
         }
         for (int id : r.plan.no_caben) {
-            i64 largo = 0;
-            for (const auto& pz : r.prob.piezas)
-                if (pz.id == id) largo = pz.largo;
-            plan.push_back({T(r.prob.nombre), T("NO CABE"), V(), T(r.prob.nombres[id]), N(largo / e), V(), V(), V()});
+            const Pieza* pz = pieza_de(r.prob, id);
+            plan.push_back({T(r.prob.nombre), T("NO CABE"), V(), T(nombre_no_cabe(r.prob, id)), N((pz ? pz->largo : 0) / e), V(), V(),
+                            V()});
         }
     }
 

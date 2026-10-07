@@ -60,6 +60,12 @@ struct ResultadoPerfil {
     i64 barras_enviar() const { return (i64)plan.barras.size() + prob.margen; }
 };
 
+// La pieza de un id (nullptr si no esta).
+const Pieza* pieza_de(const ProblemaPerfil& p, int id);
+
+// Nombre de una pieza que no cabe, con su cantidad si es mas de una: "Larguero (× 8)".
+std::string nombre_no_cabe(const ProblemaPerfil& p, int id);
+
 // Calcula un perfil y pasa el plan por el validador. Nunca lanza: un error
 // queda en `motivo` con valido = false.
 ResultadoPerfil resolver(const ProblemaPerfil& prob, const Control* control = nullptr);
