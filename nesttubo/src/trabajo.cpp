@@ -353,19 +353,117 @@ std::vector<PerfilTxt> aplicar_cambios(const std::vector<PerfilTxt>& catalogo, c
     return r;
 }
 
-CambiosCatalogo cambios_de_tabla(const std::vector<PerfilTxt>& tabla, const std::vector<std::string>& tocados,
-                                 const std::vector<std::string>& quitados) {
+int buscar_perfil(const std::vector<PerfilTxt>& v, const std::string& nombre) {
+    std::string k = clave_perfil(nombre);
+    return k.empty() ? -1 : buscar(v, k);
+}
+
+std::string* campo_perfil(PerfilTxt& p, int col) {
+    std::string* c[] = {&p.nombre, &p.cara, &p.barra, &p.despunte, &p.zona_muerta, &p.separacion, &p.margen};
+    return col >= 0 && col < 7 ? c[col] : nullptr;
+}
+
+CambiosCatalogo cambio_por_campo(const std::vector<PerfilTxt>& catalogo, const PerfilTxt& fila, int col) {
     CambiosCatalogo c;
-    for (const std::string& t : tocados) {
-        std::string k = clave_perfil(t);
-        int i = buscar(tabla, k);
-        if (!k.empty() && i >= 0 && buscar(c.cambiados, k) < 0) c.cambiados.push_back(tabla[i]);
+    if (col < 1 || col > 6 || clave_perfil(fila.nombre).empty()) return c;
+    int i = buscar_perfil(catalogo, fila.nombre);
+    if (i < 0) {
+        c.cambiados.push_back(fila);
+        return c;
     }
-    for (const std::string& q : quitados) {
-        std::string k = clave_perfil(q);
-        if (!k.empty() && buscar(tabla, k) < 0 && !esta(c.quitados, k)) c.quitados.push_back(k);
-    }
+    PerfilTxt p = catalogo[i];
+    PerfilTxt f = fila;
+    *campo_perfil(p, col) = *campo_perfil(f, col);
+    c.cambiados.push_back(p);
     return c;
+}
+
+CambiosCatalogo cambio_por_nombre(const std::vector<PerfilTxt>& catalogo, const PerfilTxt& fila, const std::string& viejo,
+                                  bool viejo_sigue_en_tabla) {
+    CambiosCatalogo c;
+    std::string kn = clave_perfil(fila.nombre), kv = clave_perfil(viejo);
+    if (kn.empty()) return c;
+    int in = buscar(catalogo, kn), iv = kv.empty() ? -1 : buscar(catalogo, kv);
+    if (kn == kv) {   // solo cambian mayusculas o espacios
+        PerfilTxt p = in >= 0 ? catalogo[in] : fila;
+        p.nombre = fila.nombre;
+        c.cambiados.push_back(p);
+        return c;
+    }
+    if (in >= 0) return c;   // ya existe en el catalogo: no se toca (la fila viene de el)
+    if (iv >= 0) {           // renombrar un perfil del catalogo
+        if (!viejo_sigue_en_tabla) c.quitados.push_back(kv);
+        PerfilTxt p = catalogo[iv];
+        p.nombre = fila.nombre;
+        c.cambiados.push_back(p);
+        return c;
+    }
+    c.cambiados.push_back(fila);   // perfil nuevo
+    return c;
+}
+
+std::vector<std::string> perfiles_distintos(const std::vector<PerfilTxt>& a, const std::vector<PerfilTxt>& b) {
+    std::vector<std::string> r;
+    for (const PerfilTxt& x : a) {
+        int i = buscar_perfil(b, x.nombre);
+        if (i < 0) continue;
+        PerfilTxt p = x, q = b[i];
+        for (int col = 1; col < 7; col++)
+            if (recortar(*campo_perfil(p, col)) != recortar(*campo_perfil(q, col))) {
+                r.push_back(x.nombre);
+                break;
+            }
+    }
+    return r;
+}
+
+PasadaCatalogo pasada_catalogo(Lectura lectura, const std::vector<PerfilTxt>& carpeta, const std::vector<PerfilTxt>& local,
+                               const CambiosCatalogo& pendientes) {
+    PasadaCatalogo r;
+    if (lectura == Lectura::error) return r;
+    if (lectura == Lectura::no_existe) {
+        r.resultado = aplicar_cambios(local, pendientes);
+        r.escribir = true;
+        return r;
+    }
+    r.resultado = aplicar_cambios(carpeta, pendientes);
+    r.escribir = !pendientes.vacio();
+    return r;
+}
+
+namespace {
+bool letra(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+std::string minus_ascii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
+}  // namespace
+
+std::string ruta_pendiente(const std::string& raiz, const std::string& destino) {
+    if (raiz.empty()) return "";
+    if (destino.size() > 2 && destino[0] == '\\' && destino[1] == '\\') {
+        if (destino[2] == '?' || destino[2] == '.' || destino[2] == '\\') return "";
+        return raiz + "\\red\\" + destino.substr(2);
+    }
+    if (destino.size() > 3 && letra(destino[0]) && destino[1] == ':' && destino[2] == '\\')
+        return raiz + "\\" + std::string(1, destino[0]) + "\\" + destino.substr(3);
+    return "";
+}
+
+bool destino_de_pendiente(const std::string& raiz, const std::string& ruta, std::string& destino) {
+    std::string pref = raiz + "\\";
+    if (raiz.empty() || ruta.size() <= pref.size() || minus_ascii(ruta.substr(0, pref.size())) != minus_ascii(pref)) return false;
+    std::string resto = ruta.substr(pref.size());
+    if (resto.size() > 4 && minus_ascii(resto.substr(0, 4)) == "red\\") {
+        destino = "\\\\" + resto.substr(4);
+        return true;
+    }
+    if (resto.size() > 2 && letra(resto[0]) && resto[1] == '\\') {
+        destino = std::string(1, resto[0]) + ":\\" + resto.substr(2);
+        return true;
+    }
+    return false;
 }
 
 std::vector<PerfilTxt> unir_catalogos(const std::vector<PerfilTxt>& carpeta, const std::vector<PerfilTxt>& local) {

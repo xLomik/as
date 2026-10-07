@@ -103,11 +103,45 @@ void juntar_cambios(CambiosCatalogo& viejos, const CambiosCatalogo& nuevos);
 // del catalogo se limpian (queda la primera).
 std::vector<PerfilTxt> aplicar_cambios(const std::vector<PerfilTxt>& catalogo, const CambiosCatalogo& c);
 
-// Cambios de esta sesion a partir de la tabla: `tocados` y `quitados` son claves.
-// Un tocado que ya no esta en la tabla no se manda; un quitado que volvio a la
-// tabla tampoco se borra.
-CambiosCatalogo cambios_de_tabla(const std::vector<PerfilTxt>& tabla, const std::vector<std::string>& tocados,
-                                 const std::vector<std::string>& quitados);
+// Posicion del perfil con ese nombre (clave_perfil) o -1.
+int buscar_perfil(const std::vector<PerfilTxt>& v, const std::string& nombre);
+
+// Campo `col` (0 nombre, 1 cara, 2 barra, 3 despunte, 4 zona muerta, 5 separacion, 6 margen).
+std::string* campo_perfil(PerfilTxt& p, int col);
+
+// Lo que cambia en el catalogo al editar a mano la columna `col` (1 a 6) de una
+// fila de perfiles que ya tiene nombre. `fila` ya trae el valor nuevo. Si el
+// perfil esta en el catalogo se manda su fila del catalogo con solo ese campo
+// cambiado: asi corregir un campo en un trabajo viejo no sube sus otros valores
+// viejos. Si no esta, se manda la fila de la tabla.
+CambiosCatalogo cambio_por_campo(const std::vector<PerfilTxt>& catalogo, const PerfilTxt& fila, int col);
+
+// Lo que cambia en el catalogo al cambiar a mano el nombre de una fila de
+// perfiles de `viejo` a `fila.nombre`. `viejo_sigue_en_tabla`: otra fila aun
+// tiene el nombre viejo (entonces no se quita del catalogo).
+CambiosCatalogo cambio_por_nombre(const std::vector<PerfilTxt>& catalogo, const PerfilTxt& fila, const std::string& viejo,
+                                  bool viejo_sigue_en_tabla);
+
+// Nombres que estan en las dos listas con algun campo distinto (sin contar
+// espacios en los extremos).
+std::vector<std::string> perfiles_distintos(const std::vector<PerfilTxt>& a, const std::vector<PerfilTxt>& b);
+
+// Una pasada de sincronizacion del catalogo con la carpeta de datos.
+enum class Lectura { ok, no_existe, error };
+struct PasadaCatalogo {
+    bool escribir = false;            // escribir `resultado` en la carpeta
+    std::vector<PerfilTxt> resultado; // catalogo despues de la pasada (vacio si hubo error)
+};
+// error: no se escribe nada (un archivo que no se pudo leer nunca cuenta como vacio).
+// no_existe: se parte de la copia local. ok: se parte del de la carpeta.
+PasadaCatalogo pasada_catalogo(Lectura lectura, const std::vector<PerfilTxt>& carpeta, const std::vector<PerfilTxt>& local,
+                               const CambiosCatalogo& pendientes);
+
+// Trabajos guardados sin conexion: copia local que repite la ruta del destino.
+//   \\srv\rec\a\b.ntb -> <raiz>\red\srv\rec\a\b.ntb      Z:\a\b.ntb -> <raiz>\Z\a\b.ntb
+// Otra forma de ruta (\\?\, relativa) -> "". Todo en UTF-8 con '\\'.
+std::string ruta_pendiente(const std::string& raiz, const std::string& destino);
+bool destino_de_pendiente(const std::string& raiz, const std::string& ruta, std::string& destino);
 
 // Primera vez con una carpeta que ya tiene catalogo: gana la carpeta para el
 // mismo nombre y se agregan los perfiles que solo tiene este equipo.

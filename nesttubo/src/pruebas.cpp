@@ -735,26 +735,91 @@ static void catalogo_compartido() {
         for (const auto& p : v) r += (r.empty() ? "" : ",") + p.nombre + "=" + p.barra;
         return r;
     };
+    auto texto = [&](const CambiosCatalogo& c) {
+        std::string r = "+" + nombres(c.cambiados) + " -";
+        for (size_t i = 0; i < c.quitados.size(); i++) r += (i ? "," : "") + c.quitados[i];
+        return r;
+    };
     std::vector<PerfilTxt> carpeta = {P("Cuadrado 40", "6000"), P("Rect 80x40", "6000"), P("Redondo 2", "6400")};
+    std::string r;
 
-    // otro equipo agrego "Angulo 30" mientras este cambio la barra del Cuadrado y quito el Redondo
-    std::vector<PerfilTxt> tabla = {P("cuadrado 40 ", "6500"), P("Rect 80x40", "6000"), P("", "")};
-    CambiosCatalogo c = cambios_de_tabla(tabla, {"Cuadrado 40"}, {"Redondo 2"});
-    std::vector<PerfilTxt> otra = carpeta;
-    otra.push_back(P("Angulo 30", "6000"));
-    std::string r = nombres(aplicar_cambios(otra, c));
-    check(r == "cuadrado 40 =6500,Rect 80x40=6000,Angulo 30=6000",
-          "solo se manda lo cambiado: no pisa el perfil que agrego otro equipo (" + r + ")");
+    // buscar_perfil: sin distinguir mayusculas ni espacios en los extremos
+    std::vector<PerfilTxt> cat = {P("Platina 50x5", "6000"), P("Tubo 40x40", "6400")};
+    cat[1].cara = "40";
+    check(buscar_perfil(cat, "  tubo 40X40 ") == 1 && buscar_perfil(cat, "Tubo 40") == -1 && buscar_perfil(cat, "  ") == -1,
+          "buscar_perfil encuentra '  tubo 40X40 ' y no confunde nombres parecidos ni vacios");
 
-    // abrir un trabajo viejo (menos perfiles, valores viejos) sin tocar nada no cambia el catalogo
-    std::vector<PerfilTxt> viejo = {P("Cuadrado 40", "5800")};
-    c = cambios_de_tabla(viejo, {}, {});
-    check(c.vacio() && nombres(aplicar_cambios(carpeta, c)) == nombres(carpeta), "trabajo viejo sin editar: catalogo igual");
+    // cambio_por_campo en un trabajo viejo: la fila del trabajo tiene barra 6000 y la cara vacia;
+    // el catalogo tiene barra 6400. Corregir la cara manda la fila del catalogo con la cara nueva.
+    PerfilTxt vieja = P("tubo 40x40", "6000");
+    vieja.cara = "50";   // valor ya editado en la celda
+    CambiosCatalogo c = cambio_por_campo(cat, vieja, 1);
+    check(c.quitados.empty() && c.cambiados.size() == 1 && c.cambiados[0].nombre == "Tubo 40x40" &&
+              c.cambiados[0].barra == "6400" && c.cambiados[0].cara == "50",
+          "editar la cara en un trabajo viejo: sube la cara nueva con la barra del catalogo (" + texto(c) + ")");
+    r = nombres(aplicar_cambios(cat, c));
+    check(r == "Platina 50x5=6000,Tubo 40x40=6400" && aplicar_cambios(cat, c)[1].cara == "50",
+          "y el catalogo queda con barra 6400 y cara 50 (" + r + ")");
+    c = cambio_por_campo(cat, P("Angulo 30", "6100"), 2);
+    check(c.quitados.empty() && texto(c) == "+Angulo 30=6100 -", "campo de un perfil fuera del catalogo: se manda la fila (" + texto(c) + ")");
+    check(cambio_por_campo(cat, P("", "6100"), 2).vacio() && cambio_por_campo(cat, vieja, 0).vacio() &&
+              cambio_por_campo(cat, vieja, 7).vacio(),
+          "cambio_por_campo: sin nombre o columna fuera de 1..6 no manda nada");
+    // cada columna 1..6 toma solo ese campo
+    {
+        bool bien = true;
+        for (int col = 1; col <= 6; col++) {
+            PerfilTxt f = P("Tubo 40x40", "1");
+            f.cara = f.despunte = f.zona_muerta = f.separacion = f.margen = "1";
+            *campo_perfil(f, col) = "777";
+            CambiosCatalogo k = cambio_por_campo(cat, f, col);
+            PerfilTxt esperado = cat[1];
+            *campo_perfil(esperado, col) = "777";
+            PerfilTxt got = k.cambiados.empty() ? PerfilTxt{} : k.cambiados[0];
+            for (int j = 0; j < 7; j++) bien &= *campo_perfil(got, j) == *campo_perfil(esperado, j);
+        }
+        check(bien, "cambio_por_campo: en las seis columnas cambia solo ese campo de la fila del catalogo");
+    }
 
-    // quitar y volver a escribir el mismo perfil: no se borra
-    c = cambios_de_tabla({P("Redondo 2", "6000")}, {"Redondo 2"}, {"redondo 2"});
-    r = nombres(aplicar_cambios(carpeta, c));
-    check(r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6000", "quitado que volvio a la tabla: se actualiza, no se borra (" + r + ")");
+    // cambio_por_nombre: los siete casos
+    c = cambio_por_nombre(cat, P("  ", "6000"), "Tubo 40x40", false);
+    check(c.vacio(), "nombre: nuevo vacio no manda nada");
+    c = cambio_por_nombre(cat, P("TUBO 40x40 ", "6000"), "Tubo 40x40", false);
+    check(c.quitados.empty() && c.cambiados.size() == 1 && c.cambiados[0].nombre == "TUBO 40x40 " &&
+              c.cambiados[0].barra == "6400",
+          "nombre: solo cambian mayusculas o espacios -> fila del catalogo con el nombre nuevo, sin quitar (" + texto(c) + ")");
+    c = cambio_por_nombre(cat, P("platina 50X5", "6000"), "", false);
+    check(c.vacio(), "nombre: fila sin nombre que pasa a uno del catalogo no manda nada (la ventana trae la fila)");
+    c = cambio_por_nombre(cat, P("Angulo 30", "6100"), "", false);
+    check(texto(c) == "+Angulo 30=6100 -", "nombre: fila sin nombre con un perfil nuevo -> manda la fila (" + texto(c) + ")");
+    c = cambio_por_nombre(cat, P("Platina 50x5", "5000"), "Angulo 30", false);
+    check(c.vacio(), "nombre: el nuevo ya esta en el catalogo -> nada (la fila conserva sus valores en el trabajo)");
+    c = cambio_por_nombre(cat, P("Tubo 40x40 negro", "6000"), "tubo 40x40", false);
+    check(texto(c) == "+Tubo 40x40 negro=6400 -tubo 40x40",
+          "nombre: renombrar un perfil del catalogo quita el viejo y lleva sus valores del catalogo (" + texto(c) + ")");
+    r = nombres(aplicar_cambios(cat, c));
+    check(r == "Platina 50x5=6000,Tubo 40x40 negro=6400", "y el catalogo queda renombrado (" + r + ")");
+    c = cambio_por_nombre(cat, P("Tubo 40x40 negro", "6000"), "tubo 40x40", true);
+    check(texto(c) == "+Tubo 40x40 negro=6400 -", "nombre: si el viejo sigue en otra fila no se quita (" + texto(c) + ")");
+    c = cambio_por_nombre(cat, P("Angulo 31", "6100"), "Angulo 30", false);
+    check(texto(c) == "+Angulo 31=6100 -", "nombre: el viejo no estaba en el catalogo -> manda la fila (" + texto(c) + ")");
+
+    // juntar_cambios en orden
+    {
+        CambiosCatalogo a, b;
+        a.quitados = {"redondo 2"};
+        b.cambiados = {P("Redondo 2", "6500")};
+        juntar_cambios(a, b);
+        r = nombres(aplicar_cambios(carpeta, a));
+        check(a.quitados.empty() && r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6500",
+              "quitar y luego volver a escribir el mismo perfil: queda solo como cambiado (" + r + ")");
+        CambiosCatalogo d, e;
+        d.cambiados = {P("Redondo 2", "6500")};
+        e.quitados = {"REDONDO 2"};
+        juntar_cambios(d, e);
+        r = nombres(aplicar_cambios(carpeta, d));
+        check(d.cambiados.empty() && r == "Cuadrado 40=6000,Rect 80x40=6000", "cambiar y luego quitar: queda solo quitado (" + r + ")");
+    }
 
     // pendientes de dos sesiones sin red: lo mas nuevo gana
     CambiosCatalogo a, b;
@@ -767,17 +832,122 @@ static void catalogo_compartido() {
     check(r == "CUADRADO 40=6200,Rect 80x40=6300,Redondo 2=6400",
           "dos sesiones sin red juntadas: la segunda gana (" + r + ")");
 
-    // archivo de pendientes: ida y vuelta
-    CambiosCatalogo d;
-    std::string error;
-    check(de_texto_cambios(a_texto_cambios(a), d, error) && a_texto_cambios(d) == a_texto_cambios(a),
-          "archivo de cambios pendientes: guardar y leer deja lo mismo");
-    bool ajeno = !de_texto_cambios("NESTTUBO\t1\r\n", d, error);
-    check(ajeno, "archivo de cambios ajeno: rechazado (" + error + ")");
+    // aplicar_cambios se puede repetir (una pasada cortada a medias se reintenta)
+    {
+        CambiosCatalogo k;
+        k.cambiados = {P("Angulo 30", "6000"), P("cuadrado 40", "6100")};
+        k.quitados = {"rect 80x40"};
+        auto una = aplicar_cambios(carpeta, k), dos = aplicar_cambios(una, k);
+        check(nombres(una) == nombres(dos), "aplicar los mismos cambios dos veces da lo mismo (" + nombres(dos) + ")");
+    }
 
-    // primera vez con una carpeta que ya tiene catalogo: gana la carpeta, se agregan los del equipo
-    r = nombres(unir_catalogos(carpeta, {P("cuadrado 40", "7000"), P("Mio", "6000")}));
-    check(r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6400,Mio=6000", "unir con la carpeta: gana la carpeta (" + r + ")");
+    // otro equipo agrego "Angulo 30" mientras este cambiaba la barra del Cuadrado y quitaba el Redondo
+    {
+        CambiosCatalogo k;
+        juntar_cambios(k, cambio_por_campo(carpeta, P("cuadrado 40 ", "6500"), 2));
+        CambiosCatalogo q;
+        q.quitados = {"Redondo 2"};
+        juntar_cambios(k, q);
+        std::vector<PerfilTxt> otra = carpeta;
+        otra.push_back(P("Angulo 30", "6000"));
+        r = nombres(aplicar_cambios(otra, k));
+        check(r == "Cuadrado 40=6500,Rect 80x40=6000,Angulo 30=6000",
+              "solo se manda lo cambiado: no pisa el perfil que agrego otro equipo (" + r + ")");
+    }
+
+    // pasada_catalogo
+    {
+        std::vector<PerfilTxt> local;
+        for (int i = 0; i < 30; i++) local.push_back(P("Perfil " + std::to_string(i), "6000"));
+        CambiosCatalogo pend;
+        pend.cambiados = {P("Perfil nuevo", "6100")};
+        PasadaCatalogo p = pasada_catalogo(Lectura::error, {}, local, pend);
+        check(!p.escribir, "pasada: catalogo de la carpeta ilegible -> no se escribe nada");
+        p = pasada_catalogo(Lectura::no_existe, {}, local, pend);
+        check(p.escribir && p.resultado.size() == 31, "pasada: carpeta sin catalogo -> 30 locales + 1 pendiente, y se escribe");
+        p = pasada_catalogo(Lectura::no_existe, {}, local, CambiosCatalogo{});
+        check(p.escribir && p.resultado.size() == local.size(), "pasada: sin catalogo y sin pendientes -> se escribe la copia local entera");
+        p = pasada_catalogo(Lectura::ok, carpeta, local, CambiosCatalogo{});
+        check(!p.escribir && nombres(p.resultado) == nombres(carpeta), "pasada: catalogo leido sin pendientes -> no se escribe, queda el de la carpeta");
+        p = pasada_catalogo(Lectura::ok, carpeta, local, pend);
+        r = nombres(p.resultado);
+        check(p.escribir && r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6400,Perfil nuevo=6100",
+              "pasada: catalogo leido con un pendiente -> el de la carpeta mas el pendiente (" + r + ")");
+        // en no_existe el resultado nunca tiene menos perfiles que la copia local (salvo los quitados a proposito)
+        CambiosCatalogo solo_cambios;
+        solo_cambios.cambiados = {P("Perfil 3", "7000"), P("Otro", "6000")};
+        p = pasada_catalogo(Lectura::no_existe, {}, local, solo_cambios);
+        check(p.resultado.size() >= local.size(), "pasada: sin catalogo en la carpeta no se pierde ningun perfil local");
+    }
+
+    // corte entre las dos escrituras: la copia local no alcanzo a tener el cambio, los pendientes si
+    {
+        CambiosCatalogo pend;
+        pend.cambiados = {P("Rect 80x40", "6300")};
+        r = nombres(aplicar_cambios(carpeta, pend));
+        check(r == "Cuadrado 40=6000,Rect 80x40=6300,Redondo 2=6400", "corte entre las dos escrituras: al arrancar se recupera el cambio (" + r + ")");
+    }
+
+    // perfiles_distintos y unir_catalogos en los dos sentidos
+    {
+        std::vector<PerfilTxt> otro = {P("cuadrado 40 ", "6000"), P("Rect 80x40", "6100"), P("Mio", "6000")};
+        otro[0].cara = " 40";   // en la carpeta la cara esta vacia: cuenta como distinta
+        auto d = perfiles_distintos(carpeta, otro);
+        std::string ds;
+        for (const auto& x : d) ds += x + ";";
+        check(ds == "Cuadrado 40;Rect 80x40;", "perfiles_distintos: la cara y la barra distintas cuentan (" + ds + ")");
+        std::vector<PerfilTxt> igual = {P(" CUADRADO 40", "6000 ")};
+        check(perfiles_distintos(carpeta, igual).empty(), "perfiles_distintos: espacios en los extremos y mayusculas del nombre no cuentan");
+        r = nombres(unir_catalogos(carpeta, otro));
+        check(r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6400,Mio=6000", "unir: gana la carpeta y se agregan los de este equipo (" + r + ")");
+        r = nombres(unir_catalogos(otro, carpeta));
+        check(r == "cuadrado 40 =6000,Rect 80x40=6100,Mio=6000,Redondo 2=6400", "unir al reves: gana este equipo y se agregan los de la carpeta (" + r + ")");
+    }
+
+    // archivo de pendientes: ida y vuelta con tildes y campos vacios; vacio o ajeno da error
+    {
+        CambiosCatalogo k, d;
+        PerfilTxt t = P("Ángulo 30×30 ñ", "");
+        t.cara = "";
+        t.margen = "";
+        k.cambiados = {t, P("Cuadrado 40", "6000")};
+        k.quitados = {"travesaño", "rect 80x40"};
+        std::string error;
+        bool ok = de_texto_cambios(a_texto_cambios(k), d, error);
+        check(ok && a_texto_cambios(d) == a_texto_cambios(k) && d.cambiados.size() == 2 && d.cambiados[0].nombre == t.nombre &&
+                  d.cambiados[0].barra.empty() && d.cambiados[0].margen.empty() && d.quitados.size() == 2,
+              "archivo de cambios pendientes: ida y vuelta con tildes y campos vacios");
+        bool vacio = !de_texto_cambios("", d, error);
+        check(vacio, "archivo de cambios vacio: error (" + error + ")");
+        bool ajeno = !de_texto_cambios("NESTTUBO\t1\r\n", d, error);
+        check(ajeno, "archivo de cambios ajeno: rechazado (" + error + ")");
+    }
+
+    // rutas de los trabajos guardados sin conexion
+    {
+        const std::string raiz = "C:\\Users\\cam\\AppData\\Local\\NestTubo\\Sin conexión";
+        std::string unc = "\\\\srv\\Datos\\Cliente A\\Pedido 1.ntb", letra_red = "N:\\datos\\Pedido 1.ntb";
+        std::string pu = ruta_pendiente(raiz, unc), pl = ruta_pendiente(raiz, letra_red), dst;
+        check(pu == raiz + "\\red\\srv\\Datos\\Cliente A\\Pedido 1.ntb", "pendiente de una ruta UNC: " + pu);
+        check(pl == raiz + "\\N\\datos\\Pedido 1.ntb", "pendiente de una letra de unidad: " + pl);
+        bool ida = destino_de_pendiente(raiz, pu, dst) && dst == unc;
+        check(ida, "ida y vuelta UNC: " + dst);
+        ida = destino_de_pendiente(raiz, pl, dst) && dst == letra_red;
+        check(ida, "ida y vuelta letra: " + dst);
+        check(ruta_pendiente(raiz, "\\\\srv\\Datos\\Cliente A\\Pedido 1.ntb") != ruta_pendiente(raiz, "\\\\srv\\Datos\\Cliente B\\Pedido 1.ntb"),
+              "dos 'Pedido 1.ntb' de carpetas distintas: pendientes distintos");
+        check(ruta_pendiente(raiz, "\\\\?\\C:\\x.ntb").empty() && ruta_pendiente(raiz, "\\\\.\\pipe\\x").empty() &&
+                  ruta_pendiente(raiz, "datos\\x.ntb").empty() && ruta_pendiente(raiz, "C:x.ntb").empty() &&
+                  ruta_pendiente(raiz, "\\x.ntb").empty() && ruta_pendiente("", unc).empty(),
+              "\\\\?\\, \\\\.\\, rutas relativas y sin raiz: sin pendiente");
+        std::string otra_may = "c:\\users\\CAM\\appdata\\local\\nesttubo\\Sin conexión\\N\\datos\\Pedido 1.ntb";
+        ida = destino_de_pendiente(raiz, otra_may, dst) && dst == letra_red;
+        check(ida, "la carpeta local escrita con otras mayusculas se reconoce: " + dst);
+        bool fuera = !destino_de_pendiente(raiz, "C:\\Users\\cam\\Documents\\Pedido 1.ntb", dst) &&
+                     !destino_de_pendiente(raiz, raiz + "x\\N\\a.ntb", dst) && !destino_de_pendiente(raiz, raiz, dst) &&
+                     !destino_de_pendiente(raiz, raiz + "\\N", dst);
+        check(fuera, "rutas fuera de la carpeta local (o la carpeta misma): no son pendientes");
+    }
 
     // catalogo con repetidos o filas vacias: se limpia
     r = nombres(aplicar_cambios({P("A", "1"), P("", ""), P("a", "2")}, CambiosCatalogo{}));
