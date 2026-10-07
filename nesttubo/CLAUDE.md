@@ -111,7 +111,8 @@ Reglas para el código:
 ## Carpeta de datos (0.3) [M]
 - Botón "Carpeta de datos..."; su estado va a la derecha de la barra de estado (rojo = sin conexión o error). config.ini sigue en %APPDATA%\NestTubo; la copia local del catálogo, sus cambios pendientes y la carpeta `Sin conexión\` van en %LOCALAPPDATA%\NestTubo.
 - Catálogo aparte de la tabla: cada celda de perfiles editada a mano se anota al confirmarla (solo ese campo). Abrir un trabajo viejo no cambia el catálogo; un perfil que falta se trae del catálogo; nombres repetidos se rechazan. Un perfiles.ntb ilegible nunca cuenta como vacío.
-- Trabajos de red: se guardan primero en `Sin conexión\<ruta del destino>` y un hilo los copia; nada de la ventana espera a la red salvo hasta 3 s al cerrar. Abrir usa la versión en espera si existe.
+- Trabajos de red: se guardan primero en `Sin conexión\<ruta del destino>` y un hilo los copia; nada de la ventana espera a la red salvo hasta 3 s al cerrar. Abrir usa la versión en espera si existe. Si al copiar el archivo de la red no es el que se conocía (otro trabajo con ese nombre, o cambió), no se pisa: queda al lado como "(guardado sin conexión)".
+- Las ediciones del catálogo se calculan sobre la copia en disco, nunca sobre la memoria de la ventana; los cuadros que manda el hilo esperan a que no haya celda en edición. Detalle en la sección "Cambios tras la revisión" del diseño.
 - Diseño completo, pruebas y lo que wine no demuestra (cuelgue real de SMB, diálogos de Windows): `docs/carpeta-de-datos.md`. Bajo wine, una letra desconectada desaparece (GetDriveTypeW = sin raíz) en vez de seguir "de red": por eso una letra que no existe también se trata como de red.
 
 ## Antes de entregar algo

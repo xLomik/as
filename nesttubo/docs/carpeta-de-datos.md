@@ -161,7 +161,7 @@ Si se quiere confirmar lo de un solo equipo, sirve una pregunta de opción múlt
     - La ventana guarda el estado de cada raíz de red: desconocido, en línea, sin conexión o error. "Desconocido" cuenta como sin conexión.
     - Antes de abrir Abrir o Guardar: si la carpeta inicial es de red y su raíz no está en línea, la carpeta inicial pasa a ser su equivalente en P (se crea en local).
       - En Guardar, esa ruta va también en `lpstrFile`, con el nombre del archivo.
-      - El título del diálogo dice "Sin conexión: se copiará a <carpeta> cuando vuelva la red".
+      - El título del diálogo dice "Sin conexión con <carpeta>: lo que guardes aquí se copiará cuando vuelva la red" (en Abrir: "se ven los trabajos guardados en este equipo").
     - Exportar y "Carpeta de datos...", en el mismo caso, no pasan la ruta de red (tampoco a `SHCreateItemFromParsingName`) y empiezan en Documentos.
 
 20. **[main.cpp] Carpeta inicial de Abrir y Guardar.**
@@ -291,4 +291,18 @@ Antes de nada, comprobar que la etiqueta o `es_remota` la ven como de red. Si no
 - Si un mismo trabajo se abre una vez como `Z:\...` y otra como `\\srv\rec\...`, se tratan como dos destinos distintos.
 - Si `lpstrInitialDir` coincide con el valor que se pasó la primera vez que se usó el diálogo en ese equipo, Windows puede abrir en la última carpeta que recuerda. Es raro, porque las rutas de P no coinciden con ese primer valor.
 - Si el usuario mismo navega dentro del diálogo a una carpeta de red caída, la ventana se cuelga igual: lo hace Windows.
-- Con dos equipos (hoy no es requisito): el catálogo se junta perfil por perfil y, en los trabajos, gana el último que copia. Si Camilo confirma que usa varios equipos, se agrega la detección de conflictos.
+- Con dos equipos (hoy no es requisito): el catálogo se junta perfil por perfil. En los trabajos, lo guardado sin conexión ya no pisa un archivo de la red que cambió (ver abajo); lo guardado con conexión sí gana, como en 0.2.
+
+## Cambios tras la revisión independiente (0.3)
+
+Una revisión adversarial del código encontró caminos que perdían datos sin aviso. Quedó así:
+
+- **El catálogo se edita sobre lo que hay en disco.** `registrar` recibe la edición (qué campo de qué perfil) y la calcula, bajo NestTubo-local, sobre la copia local recién leída, nunca sobre el catálogo en memoria de la ventana. Así dos ventanas, o una edición que llega justo después de una pasada, no se deshacen entre sí. La pasada ya no manda su copia del catálogo: la ventana relee la copia local.
+- **Nada se escribe si algo no se pudo leer o anotar.** Si la copia local existe y no se puede leer, `registrar` no escribe y lo dice. Si no se pueden anotar los pendientes, tampoco se toca la copia local (si no, la pasada siguiente borraría la edición).
+- **Cambiar de carpeta mezcla con la copia de ese momento.** `cambiar_carpeta` recibe el catálogo de la carpeta y la decisión (Sí/No) y vuelve a leer la copia local bajo el bloqueo; lo que otra ventana agregó mientras estaba la pregunta no se pierde.
+- **Lo guardado sin conexión no pisa otro archivo.** Junto a cada pendiente va `<archivo>.ntbase` con cómo estaba el archivo de la red cuando la ventana lo leyó o lo escribió (hora y tamaño), o "no existía" para un trabajo nuevo. Al copiar, si el archivo de la red no está así, lo guardado queda al lado como `<nombre> (guardado sin conexión).ntb` (o `... 2`, `... 3`), el trabajo abierto pasa a ser ese y sale un aviso.
+- **Una letra que vuelve como disco local.** Abrir usa la versión en espera aunque la ruta ya no sea de red, y guardar directo borra la versión en espera (es más vieja).
+- **Nombres y carpetas que no se aceptan.** No se guarda un trabajo llamado `perfiles.ntb` (es el catálogo) ni dentro de la carpeta `Sin conexión\` fuera de las carpetas que repiten una de red; un archivo suelto ahí no cuenta como trabajo esperando.
+- **Los cuadros del hilo esperan.** Un aviso o la pregunta de la carpeta elegida no se abren mientras hay una celda en edición u otro cuadro abierto (le quitarían el foco a la celda y confirmarían lo escrito a medias, o cambiarían la tabla debajo de una pregunta). Salen al cerrar la celda o el cuadro.
+- **La etiqueta dice a quién se espera.** El informe cuenta los trabajos por raíz sin conexión: "1 trabajo esperando conexión con N:\ (guardado en este equipo)", en rojo, y "copiando" solo cuando esa raíz responde. El título del diálogo sin conexión solo sale cuando el diálogo de verdad empieza en la copia local, con otro texto para Abrir.
+- Pruebas nuevas en `pruebas_datos.cpp` para cada caso; `compilar.sh datos` apaga las pasadas solas (`NESTTUBO_INTERVALO_S`) para que no se crucen con las que piden las pruebas.

@@ -38,7 +38,7 @@ enum : int {
     ID_CARPETA_DATOS,
     ID_ET_PERFILES = 301, ID_ET_PIEZAS, ID_ET_RESUMEN, ID_ET_PLAN,
 };
-enum : UINT { WM_APP_MOVER = WM_APP + 1, WM_APP_PROGRESO, WM_APP_FIN };
+enum : UINT { WM_APP_MOVER = WM_APP + 1, WM_APP_PROGRESO, WM_APP_FIN, WM_APP_PENDIENTES };
 enum Movimiento { MOV_SIGUIENTE_COL = 1, MOV_ANTERIOR_COL, MOV_ABAJO, MOV_ARRIBA };
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,7 @@ struct App {
     int dpi = 96;
     Trabajo trabajo;
     std::wstring archivo;
+    datos::Sello sello;   // como estaba `archivo` la ultima vez que esta ventana lo leyo o lo escribio
     bool modificado = false;
     // edicion de una celda
     HWND edit = nullptr, edit_lv = nullptr;
@@ -71,17 +72,37 @@ struct App {
     std::vector<PerfilTxt> catalogo;              // aparte de la tabla: la tabla es la del trabajo abierto
     std::map<std::wstring, Conexion> conexion;    // datos::clave_ruta(raiz) -> lo ultimo que informo el hilo
     int trabajos_en_espera = 0, fallas = 0;
+    std::vector<std::pair<std::wstring, int>> esperando_red;   // raiz sin conexion -> trabajos que la esperan
     bool catalogo_en_espera = false;
     std::wstring error_catalogo;
     std::set<std::wstring> fallas_avisadas;       // trabajo en espera + codigo: un solo cuadro por cada uno
     bool aviso_sin_conexion = false;              // el cuadro de Guardar sin conexion sale una vez por sesion
     bool examinando = false;
-    bool cuadro = false;                          // hay un cuadro abierto por un aviso del hilo
+    // Lo que llega del hilo y abre un cuadro espera a que no haya una celda en
+    // edicion ni otro cuadro abierto: el cuadro le quitaria el foco a la celda y
+    // confirmaria lo escrito a medias, o cambiaria la tabla debajo de una pregunta.
+    int modal = 0;                                // cuadros y dialogos abiertos
+    std::vector<std::wstring> avisos;
+    std::unique_ptr<datos::InformeExaminar> examen;
     std::wstring texto_datos;                     // estado de la carpeta de datos (barra de estado)
     bool datos_rojo = false;
 } app;
 
 int S(int v) { return MulDiv(v, app.dpi, 96); }
+
+bool ocupado() { return app.edit || app.modal > 0; }
+
+void revisar_pendientes() {
+    if (app.examen || !app.avisos.empty()) PostMessageW(app.wnd, WM_APP_PENDIENTES, 0, 0);
+}
+
+int cuadro(const std::wstring& texto, UINT tipo) {
+    app.modal++;
+    int r = MessageBoxW(app.wnd, texto.c_str(), L"NestTubo", tipo);
+    app.modal--;
+    revisar_pendientes();
+    return r;
+}
 
 // Columnas de las dos tablas de entrada
 const wchar_t* COLS_PERFILES[] = {L"Perfil", L"Cara ancha", L"Barra", L"Despunte", L"Zona muerta", L"Separación",
@@ -123,10 +144,16 @@ std::wstring cuantos(int n, const wchar_t* uno, const wchar_t* varios) { return 
 // Estado de la carpeta de datos, en la parte derecha de la barra de estado (en rojo si algo espera o falla).
 void etiqueta_datos() {
     std::wstring c = datos::leer_config(L"carpeta_datos");
-    std::wstring t, espera;
+    int sin_red = 0;
+    for (const auto& x : app.esperando_red) sin_red += x.second;
+    int copiando = std::max(0, app.trabajos_en_espera - sin_red);
+    std::wstring t, espera, en_curso;
     bool rojo = false;
+    bool cambios = app.catalogo_en_espera && !c.empty();
     if (app.trabajos_en_espera > 0) espera = cuantos(app.trabajos_en_espera, L"trabajo", L"trabajos");
-    if (app.catalogo_en_espera && !c.empty()) espera += (espera.empty() ? L"" : L" y ") + std::wstring(L"cambios de perfiles");
+    if (cambios) espera += (espera.empty() ? L"" : L" y ") + std::wstring(L"cambios de perfiles");
+    if (copiando > 0) en_curso = cuantos(copiando, L"trabajo", L"trabajos");
+    if (cambios) en_curso += (en_curso.empty() ? L"" : L" y ") + std::wstring(L"cambios de perfiles");
     Conexion e = conexion_de(c);
     if (app.examinando) {
         t = L"Revisando la carpeta elegida...";
@@ -141,14 +168,14 @@ void etiqueta_datos() {
     } else if (app.fallas > 0) {
         rojo = true;
         t = L"Error al copiar: " + cuantos(app.fallas, L"trabajo sin copiar", L"trabajos sin copiar");
-    } else if (c.empty()) {
-        t = L"Carpeta de datos: este equipo";
-        if (app.trabajos_en_espera > 0) {
-            rojo = true;
-            t += L". " + espera + L" esperando la red";
-        }
+    } else if (sin_red > 0) {
+        rojo = true;
+        t = cuantos(sin_red, L"trabajo esperando", L"trabajos esperando") + L" conexión con " +
+            (app.esperando_red.size() == 1 ? app.esperando_red[0].first : L"varias carpetas de red") +
+            (sin_red == 1 ? L" (guardado en este equipo)" : L" (guardados en este equipo)");
     } else {
-        t = L"Carpeta de datos: " + c + (espera.empty() ? L"" : L" (copiando " + espera + L")");
+        t = c.empty() ? L"Carpeta de datos: este equipo" : L"Carpeta de datos: " + c;
+        if (!en_curso.empty()) t += L" (copiando " + en_curso + L")";
     }
     if (t == app.texto_datos && rojo == app.datos_rojo) return;
     app.texto_datos = t;
@@ -157,11 +184,11 @@ void etiqueta_datos() {
     InvalidateRect(app.estado, nullptr, TRUE);
 }
 
-// Unico camino para cambiar el catalogo desde la ventana: lo anota en disco al momento.
-void anotar(const CambiosCatalogo& c) {
-    if (c.vacio()) return;
+// Unico camino para cambiar el catalogo desde la ventana: lo anota en disco al
+// momento. El cambio se calcula sobre la copia en disco, no sobre app.catalogo.
+void anotar(const datos::Cambio& cambio) {
     std::wstring error;
-    if (!datos::registrar(c, app.catalogo, error)) MessageBoxW(app.wnd, error.c_str(), L"NestTubo", MB_ICONERROR);
+    if (!datos::registrar(cambio, app.catalogo, error)) cuadro(error, MB_ICONERROR);
     if (!datos::leer_config(L"carpeta_datos").empty()) {
         app.catalogo_en_espera = true;
         datos::pedir_pasada(app.archivo);
@@ -286,6 +313,7 @@ bool editar_perfil(int f, int c, const std::string& nuevo) {
     }
     *campo_perfil(p, c) = nuevo;
     if (c == 0) {
+        app.catalogo = datos::copia_local(app.catalogo);   // otra ventana pudo agregarlo
         int ic = buscar_perfil(app.catalogo, nuevo);
         if (clave_perfil(viejo).empty() && ic >= 0) {
             p = app.catalogo[ic];
@@ -296,10 +324,13 @@ bool editar_perfil(int f, int c, const std::string& nuevo) {
                 for (int k = 2; k < 7; k++)
                     if (campo_perfil(p, k)->empty()) *campo_perfil(p, k) = *campo_perfil(ini, k);
             }
-            anotar(cambio_por_nombre(app.catalogo, p, viejo, fila_con_perfil(viejo, f) >= 0));
+            PerfilTxt fila = p;
+            bool sigue = fila_con_perfil(viejo, f) >= 0;
+            anotar([&](const std::vector<PerfilTxt>& actual) { return cambio_por_nombre(actual, fila, viejo, sigue); });
         }
     } else if (!clave_perfil(p.nombre).empty()) {
-        anotar(cambio_por_campo(app.catalogo, p, c));
+        PerfilTxt fila = p;
+        anotar([&](const std::vector<PerfilTxt>& actual) { return cambio_por_campo(actual, fila, c); });
     }
     for (int k = 0; k < 7; k++) poner_texto(app.perfiles, f, k, W(*celda(app.perfiles, f, k)));
     return true;
@@ -340,6 +371,7 @@ void cerrar_edicion(bool cancelar) {
     app.edit = nullptr;
     DestroyWindow(e);
     app.cerrando_edit = false;
+    revisar_pendientes();
 }
 
 void iniciar_edicion(HWND lv, int f, int c) {
@@ -388,6 +420,7 @@ void mover_edicion(int mov) {
 // tampoco esta ahi, se agrega con los valores iniciales y se anota en el catalogo.
 void perfil_si_falta(const std::string& nombre) {
     if (clave_perfil(nombre).empty() || buscar_perfil(app.trabajo.perfiles, nombre) >= 0) return;
+    app.catalogo = datos::copia_local(app.catalogo);   // otra ventana pudo agregarlo
     int ic = buscar_perfil(app.catalogo, nombre);
     PerfilTxt p = ic >= 0 ? app.catalogo[ic] : perfil_nuevo(nombre);
     if (!app.trabajo.perfiles.empty() && fila_vacia(app.trabajo.perfiles.back())) {
@@ -402,7 +435,7 @@ void perfil_si_falta(const std::string& nombre) {
         estado(L"Perfil \"" + W(p.nombre) + L"\" traído del catálogo.");
         return;
     }
-    anotar(cambio_por_nombre(app.catalogo, p, "", false));
+    anotar([&](const std::vector<PerfilTxt>& actual) { return cambio_por_nombre(actual, p, "", false); });
     estado(L"Perfil \"" + W(nombre) + L"\" agregado con los valores iniciales (barra 6000, despunte 10, zona muerta 230, "
                                       L"separación 3). Corrígelos en la tabla de perfiles si hace falta.");
 }
@@ -475,7 +508,7 @@ void calcular() {
         for (size_t i = 0; i < errores.size() && i < 15; i++) msg += L"- " + W(errores[i]) + L"\n";
         if (errores.size() > 15) msg += L"... y " + std::to_wstring(errores.size() - 15) + L" más.\n";
         estado(std::to_wstring(errores.size()) + (errores.size() == 1 ? L" dato por corregir." : L" datos por corregir."));
-        MessageBoxW(app.wnd, msg.c_str(), L"NestTubo", MB_ICONWARNING);
+        cuadro(msg.c_str(), MB_ICONWARNING);
         return;
     }
     if (app.hilo.joinable()) app.hilo.join();
@@ -536,50 +569,73 @@ void fin_calculo(Resultado* res) {
 bool dialogo_archivo(bool guardar, std::wstring& ruta) {
     std::wstring inicial = datos::leer_config(L"carpeta");
     if (inicial.empty()) inicial = datos::leer_config(L"carpeta_datos");
-    std::wstring sugerido = ruta, sin_red;
+    std::wstring sugerido = ruta, sin_red;   // sin_red: el dialogo empieza en la copia de esta carpeta de red
     if (!sugerido.empty() && fuera_de_linea(sugerido)) {
         sin_red = datos::carpeta_de(sugerido);
         sugerido = datos::ruta_en_espera(sugerido);
         datos::crear_carpetas(datos::carpeta_de(sugerido));
     }
     if (!inicial.empty() && fuera_de_linea(inicial)) {
-        if (sin_red.empty()) sin_red = inicial;
+        if (sugerido.empty()) sin_red = inicial;   // con un archivo sugerido, el dialogo empieza en su carpeta
         inicial = datos::carpeta_en_espera(inicial);
         datos::crear_carpetas(inicial);
     }
-    wchar_t buf[MAX_PATH] = L"";
-    if (!sugerido.empty()) lstrcpynW(buf, sugerido.c_str(), MAX_PATH);
-    std::wstring titulo_dlg = L"Sin conexión: se copiará a " + sin_red + L" cuando vuelva la red";
-    OPENFILENAMEW o{};
-    o.lStructSize = sizeof(o);
-    o.hwndOwner = app.wnd;
-    o.lpstrFilter = L"Trabajos de NestTubo (*.ntb)\0*.ntb\0Todos los archivos\0*.*\0";
-    o.lpstrFile = buf;
-    o.nMaxFile = MAX_PATH;
-    o.lpstrDefExt = L"ntb";
-    o.lpstrInitialDir = inicial.empty() ? nullptr : inicial.c_str();
-    o.lpstrTitle = sin_red.empty() ? nullptr : titulo_dlg.c_str();
-    o.Flags = guardar ? (OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST) : (OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST);
-    if (!(guardar ? GetSaveFileNameW(&o) : GetOpenFileNameW(&o))) return false;
-    ruta = buf;
-    std::wstring destino;
-    if (datos::destino_en_espera(ruta, destino)) ruta = destino;
-    datos::escribir_config(L"carpeta", datos::carpeta_de(ruta));
-    return true;
+    std::wstring titulo_dlg = guardar ? L"Sin conexión con " + sin_red + L": lo que guardes aquí se copiará cuando vuelva la red"
+                                      : L"Sin conexión con " + sin_red + L": se ven los trabajos guardados en este equipo";
+    for (;;) {
+        wchar_t buf[MAX_PATH] = L"";
+        if (!sugerido.empty()) lstrcpynW(buf, sugerido.c_str(), MAX_PATH);
+        OPENFILENAMEW o{};
+        o.lStructSize = sizeof(o);
+        o.hwndOwner = app.wnd;
+        o.lpstrFilter = L"Trabajos de NestTubo (*.ntb)\0*.ntb\0Todos los archivos\0*.*\0";
+        o.lpstrFile = buf;
+        o.nMaxFile = MAX_PATH;
+        o.lpstrDefExt = L"ntb";
+        o.lpstrInitialDir = inicial.empty() ? nullptr : inicial.c_str();
+        o.lpstrTitle = sin_red.empty() ? nullptr : titulo_dlg.c_str();
+        o.Flags = guardar ? (OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST) : (OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST);
+        app.modal++;
+        bool ok = guardar ? GetSaveFileNameW(&o) : GetOpenFileNameW(&o);
+        app.modal--;
+        revisar_pendientes();
+        if (!ok) return false;
+        ruta = buf;
+        std::wstring destino;
+        if (datos::destino_en_espera(ruta, destino) && !datos::raiz(destino).empty()) ruta = destino;
+        else if (guardar && datos::dentro_de_espera(ruta)) {
+            // fuera de las carpetas que repiten una de red no hay a donde copiarlo
+            cuadro(L"Esa carpeta no corresponde a ninguna carpeta de red: lo que se guarde ahí no se copia a ningún lado.\n\n"
+                   L"Elige la carpeta del trabajo dentro de la que abrió el diálogo, o una carpeta de este equipo.",
+                   MB_ICONWARNING);
+            sugerido = ruta;
+            continue;
+        }
+        datos::escribir_config(L"carpeta", datos::carpeta_de(ruta));
+        return true;
+    }
 }
 
 bool guardar(bool como) {
     cerrar_edicion(false);
     std::wstring ruta = app.archivo;
-    if (como || ruta.empty())
+    datos::Sello base = app.sello;
+    if (como || ruta.empty()) {
         if (!dialogo_archivo(true, ruta)) return false;
+        if (datos::clave_ruta(ruta) != datos::clave_ruta(app.archivo)) {
+            // con conexion el dialogo ya pregunto si se reemplaza lo que hubiera; sin conexion no se sabe que hay
+            base = fuera_de_linea(ruta) ? datos::sello_nuevo() : datos::sello_de(ruta);
+        }
+    }
     bool en_espera = false;
     std::wstring error;
-    if (!datos::guardar_trabajo(ruta, a_texto(app.trabajo), en_espera, error)) {
-        MessageBoxW(app.wnd, error.c_str(), L"NestTubo", MB_ICONERROR);
+    datos::Sello sello;
+    if (!datos::guardar_trabajo(ruta, a_texto(app.trabajo), base, en_espera, sello, error)) {
+        cuadro(error, MB_ICONERROR);
         return false;
     }
     app.archivo = ruta;
+    app.sello = sello;
     app.modificado = false;
     titulo();
     if (!en_espera) {
@@ -587,16 +643,24 @@ bool guardar(bool como) {
         return true;
     }
     app.trabajos_en_espera = std::max(app.trabajos_en_espera, 1);
-    datos::pedir_pasada(ruta);
-    estado(L"Guardado en este equipo; copiando a " + ruta + L"...");
-    etiqueta_datos();
     Conexion c = conexion_de(ruta);
+    if (c != Conexion::en_linea) {
+        std::wstring r = datos::raiz(ruta);
+        auto it = std::find_if(app.esperando_red.begin(), app.esperando_red.end(),
+                               [&](const std::pair<std::wstring, int>& x) { return datos::clave_ruta(x.first) == datos::clave_ruta(r); });
+        if (it == app.esperando_red.end()) app.esperando_red.push_back({r, 1});
+    }
+    datos::pedir_pasada(ruta);
+    estado(c == Conexion::en_linea ? L"Guardado en este equipo; copiando a " + ruta + L"..."
+                                   : L"Guardado en este equipo; se copiará a " + ruta + L" cuando haya conexión.");
+    etiqueta_datos();
     if (c != Conexion::en_linea && !app.aviso_sin_conexion) {
         app.aviso_sin_conexion = true;
         std::wstring m = (c == Conexion::sin_conexion ? L"No hay conexión con " : L"Todavía no responde ") + datos::carpeta_de(ruta) +
                          L".\n\nEl trabajo quedó guardado en este equipo y se copiará solo cuando haya conexión, "
-                         L"con NestTubo abierto.";
-        MessageBoxW(app.wnd, m.c_str(), L"NestTubo", MB_ICONINFORMATION);
+                         L"con NestTubo abierto. Si en la red ya hay otro archivo con ese nombre, no se reemplaza: "
+                         L"este se copia al lado como \"(guardado sin conexión)\".";
+        cuadro(m, MB_ICONINFORMATION);
     }
     return true;
 }
@@ -608,7 +672,7 @@ bool puede_descartar() {
     // sin archivo ni piezas no hay nada que perder: lo editado en perfiles ya esta en el catalogo
     bool piezas = std::any_of(app.trabajo.piezas.begin(), app.trabajo.piezas.end(), [](const PiezaTxt& p) { return !fila_vacia(p); });
     if (app.archivo.empty() && !piezas) return true;
-    int r = MessageBoxW(app.wnd, L"¿Guardar los cambios del trabajo actual?", L"NestTubo", MB_YESNOCANCEL | MB_ICONQUESTION);
+    int r = cuadro(L"¿Guardar los cambios del trabajo actual?", MB_YESNOCANCEL | MB_ICONQUESTION);
     if (r == IDCANCEL) return false;
     if (r == IDYES) return guardar(false);
     return true;
@@ -653,7 +717,17 @@ bool carpeta_moderna(const wchar_t* titulo_dlg, const std::wstring& inicial, std
 
 // Si la carpeta inicial es de red y no responde se empieza en Documentos: pedirle
 // la ruta a Windows colgaria la ventana.
+bool elegir_carpeta_(const wchar_t* titulo_dlg, std::wstring inicial, std::wstring& carpeta);
+
 bool elegir_carpeta(const wchar_t* titulo_dlg, std::wstring inicial, std::wstring& carpeta) {
+    app.modal++;
+    bool r = elegir_carpeta_(titulo_dlg, inicial, carpeta);
+    app.modal--;
+    revisar_pendientes();
+    return r;
+}
+
+bool elegir_carpeta_(const wchar_t* titulo_dlg, std::wstring inicial, std::wstring& carpeta) {
     if (inicial.empty() || fuera_de_linea(inicial)) inicial = datos::carpeta_documentos();
     bool elegida = false;
     if (carpeta_moderna(titulo_dlg, inicial, carpeta, elegida)) return elegida;
@@ -679,12 +753,11 @@ void exportar() {
     cerrar_edicion(false);
     if (app.calculando) return;
     if (app.resultados.empty()) {
-        MessageBoxW(app.wnd, L"Primero calcula las barras: se exporta el último cálculo.", L"NestTubo", MB_ICONINFORMATION);
+        cuadro(L"Primero calcula las barras: se exporta el último cálculo.", MB_ICONINFORMATION);
         return;
     }
     if (app.resultado_viejo) {
-        MessageBoxW(app.wnd, L"Los datos cambiaron desde el último cálculo. Calcula de nuevo antes de exportar.", L"NestTubo",
-                    MB_ICONWARNING);
+        cuadro(L"Los datos cambiaron desde el último cálculo. Calcula de nuevo antes de exportar.", MB_ICONWARNING);
         return;
     }
     std::wstring carpeta, inicial = datos::leer_config(L"carpeta_exportar");
@@ -705,7 +778,7 @@ void exportar() {
     if (existe(pdf) || existe(xlsx) || existe(dxf)) {
         std::wstring q = L"Ya hay una exportación de \"" + nombre + L"\" en esa carpeta.\n\n¿Reemplazarla? Se borran los DXF de la carpeta \"" +
                          nombre + L" - DXF\" para que no se mezclen los viejos con los nuevos.";
-        if (MessageBoxW(app.wnd, q.c_str(), L"NestTubo", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+        if (cuadro(q.c_str(), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
         WIN32_FIND_DATAW f;
         HANDLE h = FindFirstFileW((dxf + L"\\*.dxf").c_str(), &f);
         if (h != INVALID_HANDLE_VALUE) {
@@ -737,15 +810,14 @@ void exportar() {
     }
     if (!falla.empty()) {
         estado(L"No se pudo exportar.");
-        MessageBoxW(app.wnd, (L"No se pudo escribir\n" + falla + L"\n\n¿Está abierto en otro programa? Ciérralo y vuelve a exportar.").c_str(),
-                    L"NestTubo", MB_ICONERROR);
+        cuadro((L"No se pudo escribir\n" + falla + L"\n\n¿Está abierto en otro programa? Ciérralo y vuelve a exportar.").c_str(), MB_ICONERROR);
         return;
     }
     estado(L"Exportado en " + carpeta + L": PDF, Excel y " + std::to_wstring(n_dxf) + L" DXF.");
     std::wstring msg = L"Listo. En " + carpeta + L" quedaron:\n\n" + nombre + L" - plan.pdf\n" + nombre + L" - plan.xlsx\n" +
                        nombre + L" - DXF  (" + std::to_wstring(n_dxf) + (n_dxf == 1 ? L" archivo)" : L" archivos)") +
                        L"\n\n¿Abrir la carpeta?";
-    if (MessageBoxW(app.wnd, msg.c_str(), L"NestTubo", MB_YESNO | MB_ICONINFORMATION) == IDYES)
+    if (cuadro(msg.c_str(), MB_YESNO | MB_ICONINFORMATION) == IDYES)
         ShellExecuteW(app.wnd, L"open", carpeta.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
@@ -759,9 +831,11 @@ void limpiar_resultado() {
 void nuevo() {
     if (!puede_descartar()) return;
     app.trabajo.piezas.clear();
+    app.catalogo = datos::copia_local(app.catalogo);
     app.trabajo.perfiles = app.catalogo;
     asegurar_fila_vacia();
     app.archivo.clear();
+    app.sello = datos::sello_nuevo();
     app.modificado = false;
     llenar_tabla(app.perfiles);
     llenar_tabla(app.piezas);
@@ -777,7 +851,8 @@ void abrir(std::wstring ruta = L"") {
     if (ruta.empty() && !dialogo_archivo(false, ruta)) return;
     std::wstring destino;
     bool en_espera = false;
-    std::wstring leer = datos::version_a_abrir(ruta, destino, en_espera);
+    datos::Sello base;
+    std::wstring leer = datos::version_a_abrir(ruta, destino, en_espera, base);
     std::string texto, error;
     DWORD cod = 0;
     Trabajo t;
@@ -785,12 +860,13 @@ void abrir(std::wstring ruta = L"") {
     if (!ok) error = U(datos::texto_error(cod));
     else ok = de_texto(texto, t, error);
     if (!ok) {
-        MessageBoxW(app.wnd, (L"No se pudo abrir " + leer + L"\n\n" + W(error)).c_str(), L"NestTubo", MB_ICONERROR);
+        cuadro((L"No se pudo abrir " + leer + L"\n\n" + W(error)).c_str(), MB_ICONERROR);
         return;
     }
     app.trabajo = t;
     asegurar_fila_vacia();
     app.archivo = destino;
+    app.sello = en_espera ? base : datos::sello_de(leer);
     app.modificado = false;
     llenar_tabla(app.perfiles);
     llenar_tabla(app.piezas);
@@ -814,7 +890,7 @@ void quitar_filas(HWND lv) {
                      : sel.size() == 1 ? L"¿Quitar el perfil? También se quita del catálogo y no saldrá en los trabajos nuevos."
                                        : L"¿Quitar " + std::to_wstring(sel.size()) +
                                              L" perfiles? También se quitan del catálogo y no saldrán en los trabajos nuevos.";
-    if (MessageBoxW(app.wnd, q.c_str(), L"NestTubo", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+    if (cuadro(q.c_str(), MB_YESNO | MB_ICONQUESTION) != IDYES) return;
     std::vector<std::string> nombres;
     for (size_t k = sel.size(); k-- > 0;) {
         if (es_perfiles(lv)) {
@@ -827,7 +903,7 @@ void quitar_filas(HWND lv) {
     CambiosCatalogo quitados;   // solo si ninguna fila que queda tiene ese perfil
     for (const auto& n : nombres)
         if (!clave_perfil(n).empty() && buscar_perfil(app.trabajo.perfiles, n) < 0) quitados.quitados.push_back(clave_perfil(n));
-    anotar(quitados);
+    if (!quitados.vacio()) anotar([&](const std::vector<PerfilTxt>&) { return quitados; });
     if (!quitados.vacio()) estado(quitados.quitados.size() == 1 ? L"Perfil quitado del catálogo." : L"Perfiles quitados del catálogo.");
     asegurar_fila_vacia();
     llenar_tabla(lv);
@@ -861,33 +937,31 @@ void carpeta_examinada(const datos::InformeExaminar& inf) {
     const std::wstring& f = inf.carpeta;
     if (inf.lectura == Lectura::error) {
         estado(L"La carpeta de datos no cambió.");
-        MessageBoxW(app.wnd, (L"No se pudo leer " + f + L"\\perfiles.ntb: " + inf.error + L".\n\nLa carpeta de datos no cambió.").c_str(),
-                    L"NestTubo", MB_ICONWARNING);
+        cuadro((L"No se pudo leer " + f + L"\\perfiles.ntb: " + inf.error + L".\n\nLa carpeta de datos no cambió.").c_str(), MB_ICONWARNING);
         return;
     }
-    std::vector<PerfilTxt> local = datos::copia_local(app.catalogo), resultado = local;
-    bool habia = inf.lectura == Lectura::ok;
+    bool habia = inf.lectura == Lectura::ok, gana_carpeta = true;
     if (habia) {
-        std::vector<std::string> d = perfiles_distintos(inf.catalogo, local);
-        bool los_de_la_carpeta = true;
+        std::vector<std::string> d = perfiles_distintos(inf.catalogo, datos::copia_local(app.catalogo));
         if (!d.empty()) {
             std::wstring lista;
             for (size_t i = 0; i < d.size() && i < 15; i++) lista += L"   " + W(d[i]) + L"\n";
             if (d.size() > 15) lista += L"   ... y " + std::to_wstring(d.size() - 15) + L" más\n";
             std::wstring q = L"Estos perfiles tienen valores distintos en la carpeta y en este equipo:\n\n" + lista +
                              L"\n¿Usar los de la carpeta?\n\nSí = los de la carpeta.\nNo = los de este equipo.\nCancelar = no cambiar de carpeta.";
-            int r = MessageBoxW(app.wnd, q.c_str(), L"NestTubo", MB_YESNOCANCEL | MB_ICONQUESTION);
+            int r = cuadro(q, MB_YESNOCANCEL | MB_ICONQUESTION);
             if (r == IDCANCEL) {
                 estado(L"La carpeta de datos no cambió.");
                 return;
             }
-            los_de_la_carpeta = r == IDYES;
+            gana_carpeta = r == IDYES;
         }
-        resultado = los_de_la_carpeta ? unir_catalogos(inf.catalogo, local) : unir_catalogos(local, inf.catalogo);
     }
+    // la mezcla se hace con la copia local de ahora (pudo cambiar mientras estaba la pregunta)
     std::wstring error;
-    if (!datos::cambiar_carpeta(f, resultado, habia, error)) {
-        MessageBoxW(app.wnd, (error + L"\n\nLa carpeta de datos no cambió.").c_str(), L"NestTubo", MB_ICONERROR);
+    std::vector<PerfilTxt> resultado;
+    if (!datos::cambiar_carpeta(f, inf.lectura, inf.catalogo, gana_carpeta, resultado, error)) {
+        cuadro(error + L"\n\nLa carpeta de datos no cambió.", MB_ICONERROR);
         return;
     }
     app.catalogo = resultado;
@@ -905,7 +979,21 @@ void carpeta_examinada(const datos::InformeExaminar& inf) {
     etiqueta_datos();
 }
 
-// Lo que informa el hilo despues de cada pasada.
+// Lo que llego del hilo y abre cuadros, cuando la ventana esta libre.
+void atender_pendientes() {
+    if (ocupado()) return;
+    if (app.examen) {
+        std::unique_ptr<datos::InformeExaminar> inf = std::move(app.examen);
+        carpeta_examinada(*inf);
+    }
+    while (!ocupado() && !app.avisos.empty()) {
+        std::wstring m = app.avisos.front();
+        app.avisos.erase(app.avisos.begin());
+        cuadro(m, MB_ICONWARNING);
+    }
+}
+
+// Lo que informa el hilo despues de cada pasada. No abre cuadros: los deja en app.avisos.
 void pasada_hecha(const datos::InformePasada& inf) {
     for (const auto& r : inf.raices) app.conexion[datos::clave_ruta(r.first)] = r.second;
     app.trabajos_en_espera = inf.trabajos_en_espera;
@@ -914,25 +1002,45 @@ void pasada_hecha(const datos::InformePasada& inf) {
         etiqueta_datos();
         return;
     }
+    app.esperando_red = inf.esperando_red;
+    // la copia local se puso al dia: se lee ahora (la del informe pudo quedar vieja frente a una edicion reciente)
     if (inf.hay_catalogo && datos::clave_ruta(inf.carpeta_datos) == datos::clave_ruta(datos::leer_config(L"carpeta_datos")))
-        app.catalogo = inf.catalogo;   // la tabla no se toca: es la del trabajo abierto
+        app.catalogo = datos::copia_local(app.catalogo);   // la tabla no se toca: es la del trabajo abierto
     app.error_catalogo = inf.error_catalogo;
     app.fallas = (int)inf.fallas.size();
-    if (!inf.copiados.empty())
-        estado(inf.copiados.size() == 1 ? L"Copiado a " + inf.copiados[0]
-                                        : L"Copiados " + std::to_wstring(inf.copiados.size()) + L" trabajos; el último a " + inf.copiados.back());
+    for (const auto& c : inf.copiados) {
+        bool al_lado = datos::clave_ruta(c.escrito) != datos::clave_ruta(c.destino), abierto = false;
+        if (datos::clave_ruta(c.destino) == datos::clave_ruta(app.archivo)) {
+            if (!al_lado) {
+                app.sello = c.sello;
+            } else if (!c.sigue_en_espera) {   // el trabajo abierto ahora es el que quedo al lado
+                app.archivo = c.escrito;
+                app.sello = c.sello;
+                abierto = true;
+                titulo();
+            }
+        }
+        if (al_lado)
+            app.avisos.push_back(L"En la red ya había un archivo\n" + c.destino +
+                                 L"\nque no es el que este equipo conocía (otro trabajo con el mismo nombre, o cambió mientras no había "
+                                 L"conexión). No se reemplazó: lo que guardaste sin conexión quedó como\n" + c.escrito +
+                                 (abierto ? L"\n\nEl trabajo abierto ahora es ese archivo." : L"") + L"\n\nRevisa los dos y borra el que sobre.");
+    }
+    if (!inf.copiados.empty()) {
+        const auto& u = inf.copiados.back();
+        estado(inf.copiados.size() == 1 ? L"Copiado a " + u.escrito
+                                        : L"Copiados " + std::to_wstring(inf.copiados.size()) + L" trabajos; el último a " + u.escrito);
+    }
     etiqueta_datos();
-    // errores reales (la red respondia): un cuadro por trabajo y codigo, nunca dos a la vez
+    // errores reales (la red respondia): un cuadro por trabajo y codigo
     for (const auto& f : inf.fallas) {
         std::wstring k = datos::clave_ruta(f.en_espera) + L"|" + std::to_wstring(f.codigo);
-        if (app.cuadro || app.fallas_avisadas.count(k)) continue;
+        if (app.fallas_avisadas.count(k)) continue;
         app.fallas_avisadas.insert(k);
-        app.cuadro = true;
-        std::wstring m = L"No se pudo copiar el trabajo a\n" + f.destino + L"\n\n" + datos::texto_error(f.codigo) +
-                         L"\n\nQuedó guardado en este equipo en\n" + f.en_espera + L"\n\nNestTubo lo vuelve a intentar cada 30 segundos.";
-        MessageBoxW(app.wnd, m.c_str(), L"NestTubo", MB_ICONWARNING);
-        app.cuadro = false;
+        app.avisos.push_back(L"No se pudo copiar el trabajo a\n" + f.destino + L"\n\n" + datos::texto_error(f.codigo) +
+                             L"\n\nQuedó guardado en este equipo en\n" + f.en_espera + L"\n\nNestTubo lo vuelve a intentar cada 30 segundos.");
     }
+    atender_pendientes();
 }
 
 // ---------------------------------------------------------------------------
@@ -1146,9 +1254,10 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         crear_controles();
         {
             std::wstring error;
-            if (!datos::cargar_catalogo(app.catalogo, error)) MessageBoxW(h, error.c_str(), L"NestTubo", MB_ICONWARNING);
+            if (!datos::cargar_catalogo(app.catalogo, error)) cuadro(error.c_str(), MB_ICONWARNING);
         }
         app.trabajo.perfiles = app.catalogo;
+        app.sello = datos::sello_nuevo();
         asegurar_fila_vacia();
         llenar_tabla(app.perfiles);
         llenar_tabla(app.piezas);
@@ -1188,9 +1297,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::unique_ptr<datos::InformePasada> inf((datos::InformePasada*)l);
             pasada_hecha(*inf);
         } else if (w == datos::INFORME_EXAMINAR) {
-            std::unique_ptr<datos::InformeExaminar> inf((datos::InformeExaminar*)l);
-            carpeta_examinada(*inf);
+            app.examen.reset((datos::InformeExaminar*)l);
+            atender_pendientes();
         }
+        return 0;
+    case WM_APP_PENDIENTES:
+        atender_pendientes();
         return 0;
     case WM_DRAWITEM: {
         auto* di = (DRAWITEMSTRUCT*)l;

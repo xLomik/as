@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -115,6 +116,60 @@ bool leer_catalogo(const std::wstring& ruta, std::vector<PerfilTxt>& perfiles, L
     }
     perfiles = aplicar_cambios(t.perfiles, CambiosCatalogo{});
     return true;
+}
+
+// Junto a cada trabajo en espera va su base (ver Sello) en "<archivo>.ntbase".
+std::wstring ruta_base(const std::wstring& en_espera) { return en_espera + L".ntbase"; }
+
+std::string texto_base(const Sello& s) {
+    char b[96];
+    std::snprintf(b, sizeof b, "NESTTUBO-BASE 1\n%d %d %llu %llu\n", s.conocido ? 1 : 0, s.existe ? 1 : 0, s.hora, s.tamano);
+    return b;
+}
+
+Sello leer_base(const std::wstring& en_espera) {
+    std::string d;
+    Sello s;
+    int c = 0, e = 0;
+    unsigned long long h = 0, t = 0;
+    if (leer_archivo(ruta_base(en_espera), d) == Lectura::ok &&
+        std::sscanf(d.c_str(), "NESTTUBO-BASE 1 %d %d %llu %llu", &c, &e, &h, &t) == 4) {
+        s.conocido = c != 0;
+        s.existe = e != 0;
+        s.hora = h;
+        s.tamano = t;
+    }
+    return s;
+}
+
+void borrar_carpetas_vacias(std::wstring c) {
+    std::wstring tope = clave_ruta(carpeta_espera());
+    while (clave_ruta(c).size() > tope.size() && clave_ruta(c).compare(0, tope.size(), tope) == 0) {
+        if (!RemoveDirectoryW(c.c_str())) break;
+        c = carpeta_de(c);
+    }
+}
+
+// Borra un trabajo en espera y su base (con NestTubo-local tomado).
+void borrar_en_espera(const std::wstring& f) {
+    DeleteFileW(f.c_str());
+    DeleteFileW(ruta_base(f).c_str());
+    borrar_carpetas_vacias(carpeta_de(f));
+}
+
+// "<carpeta>\<nombre> (guardado sin conexión).ntb" que aun no exista ("" si no hay).
+std::wstring nombre_sin_conexion(const std::wstring& destino) {
+    std::wstring c = con_barra(carpeta_de(destino)), n = nombre_de(destino), ext;
+    size_t k = n.find_last_of(L'.');
+    if (k != std::wstring::npos && k > 0) {
+        ext = n.substr(k);
+        n = n.substr(0, k);
+    }
+    for (int i = 1; i < 100; i++) {
+        std::wstring r = c + n + L" (guardado sin conexión" + (i > 1 ? L" " + std::to_wstring(i) : L"") + L")" + ext;
+        if (!existe(r)) return r;
+    }
+    return L"";
 }
 
 }  // namespace
@@ -301,11 +356,61 @@ std::wstring carpeta_en_espera(const std::wstring& carpeta) {
     return r.size() > 2 ? r.substr(0, r.size() - 2) : L"";
 }
 
-bool guardar_trabajo(const std::wstring& destino, const std::string& texto, bool& en_espera, std::wstring& error) {
+bool dentro_de_espera(const std::wstring& ruta) {
+    std::wstring r = clave_ruta(ruta), e = clave_ruta(carpeta_espera());
+    return r == e || (r.size() > e.size() && r.compare(0, e.size(), e) == 0 && r[e.size()] == L'\\');
+}
+
+Sello sello_de(const std::wstring& ruta) {
+    Sello s;
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExW(ruta.c_str(), GetFileExInfoStandard, &a)) {
+        DWORD e = GetLastError();
+        s.conocido = e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND;
+        return s;
+    }
+    s.conocido = true;
+    s.existe = true;
+    if (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return s;   // una carpeta con ese nombre: nunca es "el mismo"
+    s.hora = ((unsigned long long)a.ftLastWriteTime.dwHighDateTime << 32) | a.ftLastWriteTime.dwLowDateTime;
+    s.tamano = ((unsigned long long)a.nFileSizeHigh << 32) | a.nFileSizeLow;
+    return s;
+}
+
+Sello sello_nuevo() {
+    Sello s;
+    s.conocido = true;
+    return s;
+}
+
+bool mismo_archivo(const Sello& a, const Sello& b) {
+    if (!a.conocido || !b.conocido || a.existe != b.existe) return false;
+    return !a.existe || (a.hora == b.hora && a.tamano == b.tamano && a.hora != 0);
+}
+
+Sello base_en_espera(const std::wstring& destino) {
+    std::wstring p = ruta_en_espera(destino);
+    if (p.empty()) return Sello{};
+    Bloqueo b;
+    return leer_base(p);
+}
+
+bool guardar_trabajo(const std::wstring& destino, const std::string& texto, const Sello& base, bool& en_espera, Sello& sello,
+                     std::wstring& error) {
     en_espera = false;
+    sello = base;
+    if (clave_ruta(nombre_de(destino)) == L"perfiles.ntb") {
+        error = L"\"perfiles.ntb\" es el nombre del catálogo de perfiles. Guarda el trabajo con otro nombre.";
+        return false;
+    }
+    if (dentro_de_espera(destino)) {
+        error = L"Esa carpeta es donde NestTubo deja los trabajos que esperan la red:\n" + carpeta_espera() +
+                L"\n\nGuarda el trabajo en otra carpeta.";
+        return false;
+    }
+    std::wstring p = ruta_en_espera(destino);
     DWORD cod = 0;
     if (es_remota(destino)) {
-        std::wstring p = ruta_en_espera(destino);
         if (p.empty()) {
             error = L"No se puede guardar en\n" + destino;
             return false;
@@ -316,6 +421,11 @@ bool guardar_trabajo(const std::wstring& destino, const std::string& texto, bool
         }
         Bloqueo b;
         crear_carpetas(carpeta_de(p));
+        // la base es la de la primera vez que se guardo sin copiar: lo que habia en la red antes
+        if ((!existe(p) || !existe(ruta_base(p))) && !escribir_archivo(ruta_base(p), texto_base(base), &cod)) {
+            error = L"No se pudo guardar en este equipo:\n" + ruta_base(p) + L"\n\n" + texto_error(cod);
+            return false;
+        }
         if (!escribir_archivo(p, texto, &cod)) {
             error = L"No se pudo guardar en este equipo:\n" + p + L"\n\n" + texto_error(cod);
             return false;
@@ -327,24 +437,33 @@ bool guardar_trabajo(const std::wstring& destino, const std::string& texto, bool
         error = L"No se pudo guardar en\n" + destino + L"\n\n" + texto_error(cod);
         return false;
     }
+    sello = sello_de(destino);
+    if (!p.empty()) {   // una version en espera (letra que volvio como disco local) ya es mas vieja que esta
+        Bloqueo b;
+        if (existe(p) || existe(ruta_base(p))) borrar_en_espera(p);
+    }
     return true;
 }
 
-std::wstring version_a_abrir(const std::wstring& ruta, std::wstring& destino, bool& en_espera) {
+std::wstring version_a_abrir(const std::wstring& ruta, std::wstring& destino, bool& en_espera, Sello& base) {
     en_espera = false;
     destino = ruta;
+    base = Sello{};
     std::wstring d;
     if (destino_en_espera(ruta, d)) {
         destino = d;
         en_espera = true;
+        Bloqueo b;
+        base = leer_base(ruta);
         return ruta;
     }
-    if (es_remota(ruta)) {
-        std::wstring p = ruta_en_espera(ruta);
-        if (!p.empty() && existe(p)) {
-            en_espera = true;
-            return p;
-        }
+    // aunque hoy no sea de red: una letra pudo volver como disco local con una version en espera
+    std::wstring p = ruta_en_espera(ruta);
+    Bloqueo b;
+    if (!p.empty() && existe(p)) {
+        en_espera = true;
+        base = leer_base(p);
+        return p;
     }
     return ruta;
 }
@@ -380,45 +499,74 @@ std::vector<PerfilTxt> copia_local(const std::vector<PerfilTxt>& si_falla) {
     return leer_catalogo(ruta_copia(), c, l, motivo) ? c : si_falla;
 }
 
-bool registrar(const CambiosCatalogo& c, std::vector<PerfilTxt>& catalogo, std::wstring& error) {
-    if (c.vacio()) return true;
+bool registrar(const Cambio& cambio, std::vector<PerfilTxt>& catalogo, std::wstring& error) {
+    const std::wstring no_quedo = L"\n\nEl cambio no quedó en el catálogo de perfiles (el trabajo abierto sí lo tiene).";
     Bloqueo b;
-    // partir de la copia en disco (otra ventana pudo cambiarla); si no se puede leer, de la memoria
+    // se parte de la copia en disco: otra ventana o la pasada pudieron cambiarla
     std::vector<PerfilTxt> base;
     Lectura l;
     std::wstring motivo;
-    if (!leer_catalogo(ruta_copia(), base, l, motivo)) base = catalogo;
+    if (!leer_catalogo(ruta_copia(), base, l, motivo) && l == Lectura::error) {
+        error = L"No se pudo leer el catálogo de perfiles de este equipo:\n" + ruta_copia() + L"\n\n" + motivo + no_quedo;
+        return false;
+    }
+    bool hay_carpeta = !leer_config(L"carpeta_datos").empty();
+    std::string d, e;
+    CambiosCatalogo pend;
+    Lectura lp = hay_carpeta ? leer_archivo(ruta_pendientes(), d) : Lectura::no_existe;
+    bool pend_ok = lp == Lectura::ok && de_texto_cambios(d, pend, e);
+    if (pend_ok) base = aplicar_cambios(base, pend);   // por si se corto entre las dos escrituras
+    catalogo = base;
+    CambiosCatalogo c = cambio(base);
+    if (c.vacio()) return true;
     std::vector<PerfilTxt> resultado = aplicar_cambios(base, c);
-    bool ok = true;
     DWORD cod = 0;
-    if (!leer_config(L"carpeta_datos").empty()) {
+    if (hay_carpeta) {
         // primero los pendientes: si se corta antes de la copia local, al arrancar se aplican
-        std::string d, e;
-        CambiosCatalogo pend;
-        Lectura lp = leer_archivo(ruta_pendientes(), d);
-        if (lp == Lectura::error || (lp == Lectura::ok && !de_texto_cambios(d, pend, e))) {
-            pend = CambiosCatalogo{};   // ilegibles: se manda todo el catalogo
-            pend.cambiados = base;
+        if (!pend_ok) {
+            pend = CambiosCatalogo{};
+            if (lp != Lectura::no_existe) pend.cambiados = base;   // ilegibles: se manda todo el catalogo
         }
         juntar_cambios(pend, c);
         if (!escribir_archivo(ruta_pendientes(), a_texto_cambios(pend), &cod)) {
-            ok = false;
-            error = L"No se pudieron anotar los cambios de perfiles en " + ruta_pendientes() + L": " + texto_error(cod);
+            error = L"No se pudieron anotar los cambios de perfiles en\n" + ruta_pendientes() + L"\n\n" + texto_error(cod) + no_quedo;
+            return false;
         }
     }
     if (!escribir_archivo(ruta_copia(), texto_catalogo(resultado), &cod)) {
-        ok = false;
-        error = L"No se pudo guardar el catálogo de perfiles en " + ruta_copia() + L": " + texto_error(cod);
+        error = L"No se pudo guardar el catálogo de perfiles en\n" + ruta_copia() + L"\n\n" + texto_error(cod);
+        if (!hay_carpeta) {
+            error += no_quedo;
+            return false;
+        }
+        error += L"\n\nEl cambio quedó anotado para la carpeta de datos.";
+        catalogo = resultado;
+        return false;
     }
     catalogo = resultado;
-    return ok;
+    return true;
 }
 
-bool cambiar_carpeta(const std::wstring& carpeta, const std::vector<PerfilTxt>& resultado, bool respaldar, std::wstring& error) {
+bool registrar(const CambiosCatalogo& c, std::vector<PerfilTxt>& catalogo, std::wstring& error) {
+    if (c.vacio()) return true;
+    return registrar([&](const std::vector<PerfilTxt>&) { return c; }, catalogo, error);
+}
+
+bool cambiar_carpeta(const std::wstring& carpeta, Lectura lectura, const std::vector<PerfilTxt>& de_la_carpeta, bool gana_carpeta,
+                     std::vector<PerfilTxt>& resultado, std::wstring& error) {
     Bloqueo b;
     std::wstring copia = ruta_copia();
+    std::vector<PerfilTxt> local;
+    Lectura l;
+    std::wstring motivo;
+    if (!leer_catalogo(copia, local, l, motivo) && l == Lectura::error) {
+        error = L"No se pudo leer el catálogo de perfiles de este equipo:\n" + copia + L"\n\n" + motivo;
+        return false;
+    }
+    bool habia = lectura == Lectura::ok;
+    resultado = !habia ? local : gana_carpeta ? unir_catalogos(de_la_carpeta, local) : unir_catalogos(local, de_la_carpeta);
     DWORD cod = 0;
-    if (respaldar && existe(copia)) {
+    if (habia && l == Lectura::ok) {
         std::wstring resp = local_() + L"\\perfiles antes de cambiar de carpeta.ntb";
         if (!CopyFileW(copia.c_str(), resp.c_str(), FALSE)) {
             error = L"No se pudo respaldar el catálogo de este equipo en " + resp + L": " + texto_error(GetLastError());
@@ -469,6 +617,17 @@ DWORD demora_red() {
     return d;
 }
 
+// Solo para pruebas: NESTTUBO_INTERVALO_S cambia los 30 s entre pasadas solas.
+unsigned intervalo_s() {
+    static const unsigned d = [] {
+        wchar_t v[32] = L"";
+        DWORD n = GetEnvironmentVariableW(L"NESTTUBO_INTERVALO_S", v, 32);
+        unsigned x = n && n < 32 ? (unsigned)wcstoul(v, nullptr, 10) : 0u;
+        return x ? x : 30u;
+    }();
+    return d;
+}
+
 void esperar_red() {
     if (demora_red()) Sleep(demora_red());
 }
@@ -494,17 +653,17 @@ void listar(const std::wstring& carpeta, std::vector<std::wstring>& archivos) {
         if (n == L"." || n == L"..") continue;
         std::wstring r = carpeta + L"\\" + n;
         if (f.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) listar(r, archivos);
-        else if (!(n.size() > 4 && clave_ruta(n.substr(n.size() - 4)) == L".tmp")) archivos.push_back(r);
+        else {
+            std::wstring k = clave_ruta(n);
+            bool termina = false;
+            for (const wchar_t* x : {L".tmp", L".ntbase"}) {
+                size_t m = wcslen(x);
+                termina = termina || (k.size() > m && k.compare(k.size() - m, m, x) == 0);
+            }
+            if (!termina) archivos.push_back(r);
+        }
     } while (FindNextFileW(h, &f));
     FindClose(h);
-}
-
-void borrar_carpetas_vacias(std::wstring c) {
-    std::wstring tope = clave_ruta(carpeta_espera());
-    while (clave_ruta(c).size() > tope.size() && clave_ruta(c).compare(0, tope.size(), tope) == 0) {
-        if (!RemoveDirectoryW(c.c_str())) break;
-        c = carpeta_de(c);
-    }
 }
 
 void sincronizar_catalogo(const std::wstring& carpeta, InformePasada& inf, std::map<std::wstring, bool>& en_linea) {
@@ -567,7 +726,6 @@ void sincronizar_catalogo(const std::wstring& carpeta, InformePasada& inf, std::
     std::string texto = texto_catalogo(nuevo), actual;
     if (leer_archivo(ruta_copia(), actual) != Lectura::ok || actual != texto) escribir_archivo(ruta_copia(), texto);
     inf.hay_catalogo = true;
-    inf.catalogo = nuevo;
     inf.catalogo_en_espera = existe(ruta_pendientes());
 }
 
@@ -576,22 +734,31 @@ void hacer_pasada(const std::wstring& archivo, InformePasada& inf) {
     listar(carpeta_espera(), espera);
     std::wstring carpeta = leer_config(L"carpeta_datos");
     inf.carpeta_datos = carpeta;
+    std::vector<std::wstring> rutas = {carpeta, leer_config(L"carpeta"), leer_config(L"carpeta_exportar"), archivo};
+    std::vector<std::wstring> destinos(espera.size());
+    int validos = 0;
+    for (size_t i = 0; i < espera.size(); i++) {
+        // un archivo de la espera sin destino valido no es un trabajo que esperar
+        if (!destino_en_espera(espera[i], destinos[i]) || raiz(destinos[i]).empty() ||
+            clave_ruta(nombre_de(destinos[i])) == L"perfiles.ntb") {
+            destinos[i].clear();
+        } else {
+            rutas.push_back(destinos[i]);
+            validos++;
+        }
+    }
     HANDLE sinc = CreateMutexW(nullptr, FALSE, L"NestTubo-sincronizar");
     if (sinc) {
         DWORD r = WaitForSingleObject(sinc, 0);
         if (r != WAIT_OBJECT_0 && r != WAIT_ABANDONED) {
             CloseHandle(sinc);
             inf.saltada = true;
-            inf.trabajos_en_espera = (int)espera.size();
+            inf.trabajos_en_espera = validos;
             inf.catalogo_en_espera = existe(ruta_pendientes());
             return;
         }
     }
     // 1. que raices responden
-    std::vector<std::wstring> rutas = {carpeta, leer_config(L"carpeta"), leer_config(L"carpeta_exportar"), archivo};
-    std::vector<std::wstring> destinos(espera.size());
-    for (size_t i = 0; i < espera.size(); i++)
-        if (destino_en_espera(espera[i], destinos[i])) rutas.push_back(destinos[i]);
     std::map<std::wstring, bool> en_linea;
     std::map<std::wstring, std::wstring> nombre;
     for (const auto& r : rutas) {
@@ -604,38 +771,75 @@ void hacer_pasada(const std::wstring& archivo, InformePasada& inf) {
     if (!carpeta.empty() && en_linea[clave_ruta(raiz(carpeta))]) sincronizar_catalogo(carpeta, inf, en_linea);
     else inf.catalogo_en_espera = existe(ruta_pendientes());
     // 3. trabajos
+    std::map<std::wstring, int> sin_red;
     for (size_t i = 0; i < espera.size(); i++) {
         const std::wstring& f = espera[i];
         const std::wstring& destino = destinos[i];
+        if (destino.empty()) continue;
         std::wstring k = clave_ruta(raiz(destino));
-        if (destino.empty() || !en_linea[k]) {
+        if (!en_linea[k]) {
             inf.trabajos_en_espera++;
+            sin_red[k]++;
             continue;
         }
         std::string bytes;
-        if (leer_archivo(f, bytes) != Lectura::ok) {
-            inf.trabajos_en_espera++;
+        Sello base;
+        Lectura lf;
+        {
+            Bloqueo b;
+            lf = leer_archivo(f, bytes);
+            base = leer_base(f);
+        }
+        if (lf != Lectura::ok) {
+            if (lf == Lectura::error) inf.trabajos_en_espera++;
             continue;
         }
         esperar_red();
-        crear_carpetas(carpeta_de(destino));
+        Sello actual = sello_de(destino);
+        if (!actual.conocido) {
+            DWORD cod = GetLastError();
+            if (!responde(raiz(destino))) {
+                en_linea[k] = false;
+                sin_red[k]++;
+            } else {
+                inf.fallas.push_back(Falla{f, destino, cod});
+            }
+            inf.trabajos_en_espera++;
+            continue;
+        }
+        // en la red hay otro archivo (otro trabajo con ese nombre, o cambio mientras tanto): no se pisa
+        std::wstring escrito = destino;
+        if (actual.existe && !mismo_archivo(base, actual)) escrito = nombre_sin_conexion(destino);
+        if (escrito.empty()) {
+            inf.fallas.push_back(Falla{f, destino, ERROR_FILE_EXISTS});
+            inf.trabajos_en_espera++;
+            continue;
+        }
+        crear_carpetas(carpeta_de(escrito));
         DWORD cod = 0;
-        if (escribir_archivo(destino, bytes, &cod)) {
+        if (escribir_archivo(escrito, bytes, &cod)) {
+            Copiado c{destino, escrito, sello_de(escrito), false};
             Bloqueo b;
             std::string ahora;
-            if (leer_archivo(f, ahora) == Lectura::ok && ahora == bytes) {   // si se guardo otra vez, va en la siguiente
-                DeleteFileW(f.c_str());
-                borrar_carpetas_vacias(carpeta_de(f));
-            } else {
+            if (leer_archivo(f, ahora) == Lectura::ok && ahora != bytes) {   // se guardo otra vez: va en la siguiente
+                c.sigue_en_espera = true;
                 inf.trabajos_en_espera++;
+                if (escrito == destino) escribir_archivo(ruta_base(f), texto_base(c.sello));   // parte de lo que se acaba de copiar
+            } else {
+                borrar_en_espera(f);
             }
-            inf.copiados.push_back(destino);
+            inf.copiados.push_back(c);
         } else {
-            if (!responde(raiz(destino))) en_linea[k] = false;
-            else inf.fallas.push_back(Falla{f, destino, cod});
+            if (!responde(raiz(destino))) {
+                en_linea[k] = false;
+                sin_red[k]++;
+            } else {
+                inf.fallas.push_back(Falla{f, destino, cod});
+            }
             inf.trabajos_en_espera++;
         }
     }
+    for (const auto& x : sin_red) inf.esperando_red.push_back({nombre[x.first], x.second});
     for (const auto& x : en_linea)
         if (!x.first.empty()) inf.raices.push_back({nombre[x.first], x.second ? Conexion::en_linea : Conexion::sin_conexion});
     if (sinc) {
@@ -664,7 +868,7 @@ void bucle() {
         unsigned long long numero = 0;
         {
             std::unique_lock<std::mutex> lk(h.m);
-            if (!h.pasada && h.examinar.empty()) h.cv.wait_for(lk, std::chrono::seconds(30));
+            if (!h.pasada && h.examinar.empty()) h.cv.wait_for(lk, std::chrono::seconds(intervalo_s()));
             if (!h.examinar.empty()) {
                 ex = h.examinar.front();
                 h.examinar.erase(h.examinar.begin());

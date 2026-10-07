@@ -27,7 +27,8 @@ if [ "$que" = datos ]; then
   x86_64-w64-mingw32-g++ -std=c++17 -municode -O1 -Wall -Wextra src/pruebas_datos.cpp src/datos.cpp src/trabajo.cpp src/nucleo.cpp \
     -o build/pruebas_datos.exe -static -static-libgcc -static-libstdc++ $LIBS
   # sin locale UTF-8, wine no crea archivos con tildes ("Sin conexión") y responde "no encontrado"
-  export WINEPREFIX=${WINEPREFIX:-$HOME/.winep} WINEDEBUG=-all LANG=C.UTF-8
+  # NESTTUBO_INTERVALO_S: sin pasadas solas cada 30 s, que se cruzarian con las que piden las pruebas
+  export WINEPREFIX=${WINEPREFIX:-$HOME/.winep} WINEDEBUG=-all LANG=C.UTF-8 NESTTUBO_INTERVALO_S=3600
   srv="$PWD/build/srv"
   mkdir -p "$srv"
   ln -sfn "$srv" "$WINEPREFIX/dosdevices/n:"
