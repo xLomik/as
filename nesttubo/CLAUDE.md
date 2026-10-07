@@ -24,6 +24,8 @@ Mantén este archivo al día: cuando un [S] se confirme, corrígelo aquí, y bor
 - Ángulo de cada extremo: 0 = corte recto, 45 = inglete, visto sobre la cara más ancha (2026-10-07). Es la desviación respecto al corte recto, no el ángulo con el eje.
 - El proveedor nestea por su cuenta (2026-10-07): su programa puede pedir más barras que el mínimo, así que hay margen de seguridad configurable.
 - El DXF se abre en AutoCAD (2026-10-07).
+- Dibujo de la pieza en el DXF (2026-10-07, vio el borrador 0.2): trapecio sobre la cara más ancha con el lado largo abajo, que mide el largo de punta a punta; arriba cada extremo se recorta cara × tan(ángulo). Una pieza 45/45 queda como una pieza de marco.
+- Formato del PDF y del Excel (2026-10-07): el borrador 0.2 "así está bien". Cambios futuros, sobre lo que pida al usarlo.
 
 ## Fuera de alcance (no lo construyas si no lo pide)
 - Importar DXF, STEP o Excel: los descartó como entrada. Su otro programa, TuboDXF, ya saca DXF y lista de piezas, y no pidió conectarlos.
@@ -32,13 +34,11 @@ Mantén este archivo al día: cuando un [S] se confirme, corrígelo aquí, y bor
 - Pegar filas copiadas de Excel y multiplicar cantidades por número de conjuntos: son ideas de quien escribió este documento, Camilo no las pidió. Ofrécelas después de la primera versión.
 
 ## Por confirmar [S]
-Los puntos 1 a 4 de la primera ronda ya están en "Requisitos confirmados". Siguen provisionales:
+Los puntos 1 a 4 de la primera ronda, el trapecio del DXF y el formato del PDF y del Excel ya están en "Requisitos confirmados". Siguen provisionales:
 - Margen de seguridad (provisional): barras extra por perfil, valor inicial 0; se muestran el mínimo calculado y las barras a enviar.
-- Dirección del inglete en el DXF cuando los dos extremos tienen ángulo (provisional: trapecio, como una pieza de marco, con los dos cortes abriéndose hacia afuera). Enséñalo en el primer borrador.
 - Catálogo de perfiles (provisional): nombre libre + medida de la cara más ancha + largo de barra, guardado en la carpeta de datos.
 - DXF repetidos (provisional): un archivo por distribución distinta, con "xN" en el nombre.
 - Al digitar, aceptar coma o punto como separador decimal (provisional).
-- Formato del PDF y del Excel: no lo preguntes en abstracto; enséñale pronto un borrador real y ajusta sobre eso.
 
 ## Entorno y entrega
 - Equipo de Camilo [C]: el Windows del trabajo, de 64 bits (ahí compiló y corrió un binario x86_64). La red bloquea descargas de software (rustup.rs, python.org); github.com sí abre. No tiene Python ni otro equipo. Ya usa otro `.exe` suyo hecho en C++ Win32 (un cronómetro de nesteo).
@@ -104,7 +104,7 @@ Reglas para el código:
 - Plan por barra: barras iguales agrupadas ("× N"), piezas en orden con su inicio y su fin, y sobrante.
 - Excel: `.xlsx` escrito a mano (ZIP sin comprimir + XML, texto con `t="inlineStr"`); la receta está en la skill. [M] Lo abren openpyxl y LibreOffice (`soffice --headless --convert-to pdf`).
 - PDF: escrito a mano con Helvetica estándar y `WinAnsiEncoding` para las tildes. [M] Receta en `laboratorio/recetas/pdf_minimo.py`; la abren `pdftotext` y `pdftoppm`.
-- DXF para AutoCAD: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1: enséñasela antes de darla por buena.
+- DXF para AutoCAD: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1; se le enseñó en el borrador 0.2 junto con el trapecio y lo aprobó.
 - Exportar (botón de la ventana) [M]: pide una carpeta y deja `<trabajo> - plan.pdf`, `<trabajo> - plan.xlsx` y la carpeta `<trabajo> - DXF`. Solo exporta un cálculo vigente; si ya hay una exportación del mismo trabajo, pregunta y borra los DXF viejos de esa carpeta para que no se mezclen. Bajo wine sale idéntico byte a byte a `pruebas --salidas`.
 
 ## Antes de entregar algo
