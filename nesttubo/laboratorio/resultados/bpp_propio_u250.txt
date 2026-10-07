@@ -1,0 +1,1 @@
+[_u250] 20 instancias | metodo propio (5 arranques): optimo en 20 (100%), +1 en 0, +2 o mas en 0, peor +0 | certifica el minimo en 20 | la cota queda 1 por debajo del optimo en 0 | 0.1 s por instancia (max 0.2)

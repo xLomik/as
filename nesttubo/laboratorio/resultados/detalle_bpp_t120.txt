@@ -1,0 +1,21 @@
+Falkenauer_t120_00.txt optimo 40 cota 40 metodo 40 {'arranques': 2, 'n_lp': 28, 'vueltas': 11613, 'mochilas': 333, 'convergio': True}
+Falkenauer_t120_01.txt optimo 40 cota 40 metodo 40 {'arranques': 3, 'n_lp': 50, 'vueltas': 22711, 'mochilas': 494, 'convergio': True}
+Falkenauer_t120_02.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 23, 'vueltas': 8641, 'mochilas': 179, 'convergio': True}
+Falkenauer_t120_03.txt optimo 40 cota 40 metodo 40 {'arranques': 3, 'n_lp': 47, 'vueltas': 20128, 'mochilas': 598, 'convergio': True}
+Falkenauer_t120_04.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 17, 'vueltas': 9052, 'mochilas': 192, 'convergio': True}
+Falkenauer_t120_05.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 19, 'vueltas': 8890, 'mochilas': 190, 'convergio': True}
+Falkenauer_t120_06.txt optimo 40 cota 40 metodo 41 {'arranques': 5, 'n_lp': 91, 'vueltas': 38204, 'mochilas': 865, 'convergio': True}
+Falkenauer_t120_07.txt optimo 40 cota 40 metodo 40 {'arranques': 4, 'n_lp': 65, 'vueltas': 25981, 'mochilas': 703, 'convergio': True}
+Falkenauer_t120_08.txt optimo 40 cota 40 metodo 40 {'arranques': 5, 'n_lp': 66, 'vueltas': 30397, 'mochilas': 872, 'convergio': True}
+Falkenauer_t120_09.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 9, 'vueltas': 4256, 'mochilas': 161, 'convergio': True}
+Falkenauer_t120_10.txt optimo 40 cota 40 metodo 40 {'arranques': 3, 'n_lp': 36, 'vueltas': 16967, 'mochilas': 497, 'convergio': True}
+Falkenauer_t120_11.txt optimo 40 cota 40 metodo 41 {'arranques': 5, 'n_lp': 91, 'vueltas': 37137, 'mochilas': 919, 'convergio': True}
+Falkenauer_t120_12.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 15, 'vueltas': 5751, 'mochilas': 178, 'convergio': True}
+Falkenauer_t120_13.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 19, 'vueltas': 8059, 'mochilas': 184, 'convergio': True}
+Falkenauer_t120_14.txt optimo 40 cota 40 metodo 40 {'arranques': 5, 'n_lp': 80, 'vueltas': 34555, 'mochilas': 866, 'convergio': True}
+Falkenauer_t120_15.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 17, 'vueltas': 6524, 'mochilas': 151, 'convergio': True}
+Falkenauer_t120_16.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 19, 'vueltas': 8824, 'mochilas': 179, 'convergio': True}
+Falkenauer_t120_17.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 20, 'vueltas': 9691, 'mochilas': 214, 'convergio': True}
+Falkenauer_t120_18.txt optimo 40 cota 40 metodo 40 {'arranques': 4, 'n_lp': 60, 'vueltas': 27468, 'mochilas': 709, 'convergio': True}
+Falkenauer_t120_19.txt optimo 40 cota 40 metodo 40 {'arranques': 1, 'n_lp': 18, 'vueltas': 8220, 'mochilas': 200, 'convergio': True}
+[_t120] 20 instancias | metodo propio (5 arranques): optimo en 18 (90%), +1 en 2, +2 o mas en 0, peor +1 | certifica el minimo en 18 | la cota queda 1 por debajo del optimo en 0 | 1.6 s por instancia (max 3.7)

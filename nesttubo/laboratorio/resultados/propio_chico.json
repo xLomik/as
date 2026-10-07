@@ -1,0 +1,43 @@
+{
+ "familia": "chico",
+ "trabajos": 600,
+ "semilla": 2026,
+ "cota_igual_a_highs": 600,
+ "cota_distinta": 0,
+ "lp_no_convergio": 0,
+ "brecha": {
+  "simples": {
+   "0": 593,
+   "1": 7
+  },
+  "residual": {
+   "0": 600
+  },
+  "final": {
+   "0": 600
+  },
+  "peor_orden": {
+   "0": 600
+  }
+ },
+ "barras": {
+  "simples": 3454,
+  "residual": 3447,
+  "final": 3447,
+  "peor_orden": 3447
+ },
+ "barras_cota": 3447,
+ "arranques_usados": {
+  "1": 600
+ },
+ "tipos_max": 6,
+ "piezas_max": 41,
+ "seg_final": 3.0,
+ "seg_final_max": 0.02,
+ "n_lp_max": 1,
+ "mochilas_max": 16,
+ "segundos_total": 22.2,
+ "error_inversa_max": 1.1060596882828122e-14,
+ "vueltas_lp_max": 28,
+ "mochilas_lp_max": 18
+}

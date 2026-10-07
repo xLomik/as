@@ -1,0 +1,1 @@
+[Hard28] 28 instancias | metodo propio (5 arranques): optimo en 19 (68%), +1 en 9, +2 o mas en 0, peor +1 | certifica el minimo en 14 | la cota queda 1 por debajo del optimo en 5 | 10.8 s por instancia (max 31.2)

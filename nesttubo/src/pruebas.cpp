@@ -1,0 +1,452 @@
+// Pruebas del nucleo. Deben terminar en "FALLOS: 0".
+//
+//   g++ -std=c++17 -O1 -g -fsanitize=address,undefined nucleo.cpp pruebas.cpp -o pruebas
+//   ./pruebas ../laboratorio/casos_oraculo.txt
+//
+// 1. Casos que se calculan a mano (los de laboratorio/pruebas_propio.py).
+// 2. Trabajos chicos al azar contra un branch and bound escrito aqui aparte.
+// 3. El oraculo: los 1.090 trabajos de laboratorio/casos_oraculo.txt.
+// 4. Plan por perfil: posiciones, ids, piezas que no caben, validador.
+// 5. Determinismo, tope de tiempo y cancelacion.
+// 6. Lectura de numeros con coma o punto.
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <functional>
+#include <map>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "nucleo.h"
+
+using namespace nt;
+
+static int fallos = 0;
+
+static void check(bool ok, const std::string& desc) {
+    std::printf("%s %s\n", ok ? "OK " : "MAL", desc.c_str());
+    if (!ok) fallos++;
+}
+
+struct Trabajo {
+    std::vector<i64> w;
+    i64 C = 0;
+};
+
+static Trabajo transformar(const std::vector<i64>& largos, i64 L, i64 d, i64 z, i64 s) {
+    Trabajo t;
+    t.C = L - d - z + s;
+    for (i64 l : largos) t.w.push_back(l + s);
+    return t;
+}
+
+static std::vector<i64> repetir(i64 l, int n) { return std::vector<i64>(n, l); }
+
+static std::vector<i64> unir(std::initializer_list<std::vector<i64>> partes) {
+    std::vector<i64> r;
+    for (const auto& p : partes) r.insert(r.end(), p.begin(), p.end());
+    return r;
+}
+
+// Generador de las pruebas (independiente del que usa el nucleo).
+struct Azar {
+    uint64_t s;
+    explicit Azar(uint64_t x) : s(x * 2654435761ULL + 1) {}
+    uint64_t sig() {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        return s;
+    }
+    i64 entre(i64 a, i64 b) { return a + (i64)(sig() % (uint64_t)(b - a + 1)); }
+};
+
+// Minimo de barras por branch and bound, solo para trabajos chicos. Escrito aparte
+// del nucleo (no usa nada de el) para poder contrastarlo.
+static bool exacto_pequeno(std::vector<i64> w, i64 C, int& minimo, long limite_nodos = 2000000) {
+    std::sort(w.begin(), w.end(), std::greater<i64>());
+    int n = (int)w.size();
+    i64 suma = 0;
+    for (i64 x : w) suma += x;
+    int lb = (int)((suma + C - 1) / C);
+    // cota de arranque: first fit
+    std::vector<i64> r;
+    for (i64 x : w) {
+        size_t b = 0;
+        while (b < r.size() && r[b] < x) b++;
+        if (b == r.size()) r.push_back(C - x);
+        else r[b] -= x;
+    }
+    int mejor = (int)r.size();
+    long nodos = 0;
+    std::vector<i64> resto;
+    std::function<void(int)> rec = [&](int k) {
+        if (nodos > limite_nodos || mejor == lb) return;
+        nodos++;
+        if ((int)resto.size() >= mejor) return;
+        if (k == n) {
+            mejor = (int)resto.size();
+            return;
+        }
+        std::vector<i64> vistos;
+        for (size_t b = 0; b < resto.size(); b++) {
+            if (resto[b] < w[k] || std::find(vistos.begin(), vistos.end(), resto[b]) != vistos.end()) continue;
+            vistos.push_back(resto[b]);
+            resto[b] -= w[k];
+            rec(k + 1);
+            resto[b] += w[k];
+        }
+        if ((int)resto.size() + 1 < mejor) {
+            resto.push_back(C - w[k]);
+            rec(k + 1);
+            resto.pop_back();
+        }
+    };
+    rec(0);
+    minimo = mejor;
+    return nodos <= limite_nodos;
+}
+
+static void casos_a_mano() {
+    std::puts("== casos a mano");
+    struct Caso {
+        const char* desc;
+        std::vector<i64> largos;
+        i64 L, d, z, s;
+        int esperado, otro;   // otro = valor alternativo admitido (o -1)
+    };
+    std::vector<Caso> casos = {
+        {"dos mitades exactas, sin separacion", {3000, 3000}, 6000, 0, 0, 0, 1, -1},
+        {"dos mitades y 1 mm de mas", {3000, 3000, 1}, 6000, 0, 0, 0, 2, -1},
+        {"separacion 3: 3000+2997+3 = 6000 justo", {3000, 2997}, 6000, 0, 0, 3, 1, -1},
+        {"separacion 3: 3000+2998+3 = 6001 no cabe", {3000, 2998}, 6000, 0, 0, 3, 2, -1},
+        {"zona muerta 230 + despunte 10: util 5760", {2880, 2877}, 6000, 10, 230, 3, 1, -1},
+        {"lo mismo con 1 mm mas", {2880, 2878}, 6000, 10, 230, 3, 2, -1},
+        {"una pieza sola ocupa todo el util", {5760}, 6000, 10, 230, 3, 1, -1},
+        {"seis de 1000 en 6000 sin separacion", repetir(1000, 6), 6000, 0, 0, 0, 1, -1},
+        {"seis de 1000 con separacion 3: 6015 > 6000", repetir(1000, 6), 6000, 0, 0, 3, 2, -1},
+        {"FFD da 3 aqui; el minimo es 2", {3, 3, 2, 2, 2, 2}, 7, 0, 0, 0, 2, -1},
+        // Limite conocido del metodo: el prototipo da 24 y el minimo real es 23
+        // (lo demostro exacto_arcflow.py). Se aceptan los dos.
+        {"trabajo 289 de la familia medio (limite conocido)",
+         unir({repetir(2694, 4), repetir(2443, 17), repetir(1868, 4), repetir(1845, 19), repetir(1611, 19), repetir(445, 7)}),
+         6000, 10, 230, 3, 23, 24},
+    };
+    for (const auto& c : casos) {
+        Trabajo t = transformar(c.largos, c.L, c.d, c.z, c.s);
+        ResultadoPesos r = resolver_pesos(t.w, t.C, 5);
+        std::string motivo;
+        bool ok = validar_pesos(t.w, t.C, r.barras, &motivo);
+        int n = (int)r.barras.size();
+        bool bien = ok && (n == c.esperado || n == c.otro) && r.cota <= n;
+        char buf[200];
+        std::snprintf(buf, sizeof buf, "%-52s esperado %d | barras %d cota %lld %s", c.desc, c.esperado, n,
+                      (long long)r.cota, n == r.cota ? "(minimo demostrado)" : "(no demostrado)");
+        check(bien, buf);
+    }
+    // FFD y el llenado por separado, en el caso donde FFD falla
+    {
+        std::vector<i64> w{3, 3, 2, 2, 2, 2};
+        check(ffd(w, 7).size() == 3 && bfd(w, 7).size() == 3 && llenado(w, 7).size() == 2,
+              "heuristicas sueltas: FFD 3, BFD 3, llenado 2 en {3,3,2,2,2,2} con C 7");
+        check(cota_l1(w, 7) == 2 && cota_l2(w, 7) == 2, "cotas L1 y L2 = 2 en ese caso");
+    }
+    try {
+        resolver_pesos({5764}, 5763);
+        check(false, "pieza que no cabe: no la rechazo");
+    } catch (const std::invalid_argument& e) {
+        check(true, std::string("pieza que no cabe -> ") + e.what());
+    }
+    {
+        ResultadoPesos r = resolver_pesos({}, 100);
+        check(r.barras.empty() && r.cota == 0, "lista vacia: 0 barras, cota 0");
+    }
+}
+
+static void contra_branch_and_bound() {
+    std::puts("== trabajos chicos contra branch and bound");
+    Azar az(11);
+    int n = 0, malas = 0, optimas = 0, certificadas = 0;
+    i64 capacidades[] = {150, 1000, 5763};
+    for (int it = 0; it < 600; it++) {
+        i64 C = capacidades[az.entre(0, 2)];
+        std::vector<i64> w;
+        int piezas = (int)az.entre(4, 13);
+        for (int k = 0; k < piezas; k++) w.push_back(az.entre(C / 15, C * 3 / 5));
+        int opt;
+        if (!exacto_pequeno(w, C, opt)) continue;
+        ResultadoPesos r = resolver_pesos(w, C, 5);
+        bool ok = validar_pesos(w, C, r.barras);
+        n++;
+        int b = (int)r.barras.size();
+        if (!ok || !(r.cota <= opt && opt <= b) || cota_l2(w, C) > opt) malas++;
+        optimas += (b == opt);
+        certificadas += (b == r.cota);
+    }
+    char buf[200];
+    std::snprintf(buf, sizeof buf,
+                  "%d trabajos chicos: cota <= minimo <= metodo en todos (fallas: %d); metodo = minimo en %d; "
+                  "minimo demostrado en %d",
+                  n, malas, optimas, certificadas);
+    check(malas == 0 && n >= 500, buf);
+}
+
+static void oraculo(const std::string& ruta) {
+    std::puts("== oraculo");
+    std::ifstream f(ruta);
+    if (!f) {
+        check(false, "no se pudo abrir " + ruta);
+        return;
+    }
+    std::string linea, familia = "?";
+    int total = 0, cota_distinta = 0, fuera_rango = 0, invalidas = 0, simples_distintas = 0, mas = 0, menos = 0,
+        demostrados = 0, no_convergio = 0, l2_mayor = 0;
+    double t_max = 0, t_total = 0;
+    std::string peor;
+    std::map<std::string, std::pair<double, double>> por_familia;   // suma, max
+    std::map<std::string, int> cuantos;
+    while (std::getline(f, linea)) {
+        if (linea.empty()) continue;
+        if (linea[0] == '#') {
+            if (linea.rfind("# familia ", 0) == 0) familia = linea.substr(10);
+            continue;
+        }
+        std::istringstream in(linea);
+        long long L, d, z, s, cota, metodo, simples;
+        std::string sep;
+        in >> L >> d >> z >> s >> sep;
+        std::vector<i64> largos;
+        std::string tok;
+        while (in >> tok && tok != ";") {
+            size_t p = tok.find(':');
+            i64 l = std::stoll(tok.substr(0, p));
+            int q = std::stoi(tok.substr(p + 1));
+            for (int k = 0; k < q; k++) largos.push_back(l);
+        }
+        in >> cota >> metodo >> simples;
+        Trabajo t = transformar(largos, L, d, z, s);
+        auto t0 = std::chrono::steady_clock::now();
+        ResultadoPesos r = resolver_pesos(t.w, t.C, 5);
+        double seg = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        t_total += seg;
+        auto& pf = por_familia[familia];
+        pf.first += seg;
+        pf.second = std::max(pf.second, seg);
+        cuantos[familia]++;
+        if (seg > t_max) {
+            t_max = seg;
+            peor = familia + ": " + linea.substr(0, 60);
+        }
+        total++;
+        long long b = (long long)r.barras.size();
+        long long mis_simples = std::min({ffd(t.w, t.C).size(), bfd(t.w, t.C).size(), llenado(t.w, t.C).size()});
+        if (!validar_pesos(t.w, t.C, r.barras)) invalidas++;
+        if (r.cota_lp != cota) {
+            cota_distinta++;
+            std::printf("    cota distinta (%s): mia %lld, oraculo %lld | %s\n", familia.c_str(), (long long)r.cota_lp,
+                        cota, linea.c_str());
+        }
+        if (r.cota > cota) l2_mayor++;
+        if (!(cota <= b && b <= simples)) fuera_rango++;
+        if (mis_simples != simples) simples_distintas++;
+        if (b > metodo) {
+            mas++;
+            std::printf("    barras de mas (%s): %lld contra %lld | %s\n", familia.c_str(), b, metodo, linea.c_str());
+        }
+        if (b < metodo) menos++;
+        if (b == r.cota) demostrados++;
+        if (!r.info.convergio) no_convergio++;
+    }
+    char buf[300];
+    std::snprintf(buf, sizeof buf, "%d trabajos leidos", total);
+    check(total == 1090, buf);
+    std::snprintf(buf, sizeof buf, "soluciones validas en todos (invalidas: %d)", invalidas);
+    check(invalidas == 0, buf);
+    std::snprintf(buf, sizeof buf, "misma cota del LP que el prototipo (distintas: %d)", cota_distinta);
+    check(cota_distinta == 0, buf);
+    std::snprintf(buf, sizeof buf, "cota <= barras <= simples del prototipo (fuera: %d)", fuera_rango);
+    check(fuera_rango == 0, buf);
+    std::snprintf(buf, sizeof buf, "heuristicas simples iguales al prototipo (distintas: %d)", simples_distintas);
+    check(simples_distintas == 0, buf);
+    std::snprintf(buf, sizeof buf, "LP convergio en todos (no: %d)", no_convergio);
+    check(no_convergio == 0, buf);
+    std::snprintf(buf, sizeof buf,
+                  "barras iguales al prototipo salvo casos sueltos (de mas: %d, de menos: %d); minimo demostrado en %d",
+                  mas, menos, demostrados);
+    check(mas <= 3, buf);
+    std::printf("    L2 por encima de la cota del LP en %d trabajos\n", l2_mayor);
+    for (const auto& kv : por_familia)
+        std::printf("    tiempo %-11s %4d trabajos: media %.4f s, max %.4f s\n", kv.first.c_str(), cuantos[kv.first],
+                    kv.second.first / cuantos[kv.first], kv.second.second);
+    std::printf("    tiempo total %.2f s; el mas lento %.3f s (%s)\n", t_total, t_max, peor.c_str());
+}
+
+static void plan_por_perfil() {
+    std::puts("== plan por perfil");
+    Parametros p{6000, 10, 230, 3};
+    std::vector<Pieza> piezas = {{1, 2000, 3}, {2, 1500, 2}, {3, 6000, 1}, {4, 900, 4}, {5, 2000, 1}};
+    Plan plan = calcular_perfil(piezas, p);
+    std::string motivo;
+    bool valido = validar_plan(piezas, p, plan, &motivo);
+    check(valido, "plan valido: " + motivo);
+    check(plan.no_caben.size() == 1 && plan.no_caben[0] == 3, "la pieza de 6000 no cabe en util 5760 y queda fuera");
+    check(plan.piezas_colocadas == 10, "10 piezas colocadas");
+    // 4x2000 + 2x1500 + 4x900 = 14600 mm; con separacion caben en 3 barras (cota L1 = 3)
+    check(plan.barras.size() == 3 && plan.demostrado, "3 barras, minimo demostrado");
+    bool posiciones = true;
+    for (const auto& b : plan.barras) {
+        i64 pos = p.despunte;
+        for (size_t i = 0; i < b.piezas.size(); i++) {
+            if (i) pos += p.separacion;
+            posiciones &= b.piezas[i].inicio == pos && b.piezas[i].fin == pos + b.piezas[i].largo;
+            pos = b.piezas[i].fin;
+        }
+    }
+    check(posiciones, "inicio y fin de cada pieza: despunte, largo y separacion");
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "aprovechamiento %.4f = 14600 / 18000", plan.aprovechamiento());
+    check(std::fabs(plan.aprovechamiento() - 14600.0 / 18000.0) < 1e-12, buf);
+
+    // Validador: cada alteracion debe rechazarse
+    struct Alteracion {
+        const char* desc;
+        std::function<void(Plan&)> f;
+    };
+    std::vector<Alteracion> alt = {
+        {"quitar una pieza", [](Plan& q) { q.barras[0].piezas.pop_back(); }},
+        {"duplicar una pieza", [](Plan& q) { q.barras[0].piezas.push_back(q.barras[0].piezas.back()); }},
+        {"alargar una pieza", [](Plan& q) { q.barras[0].piezas[0].largo += 1; q.barras[0].piezas[0].fin += 1; }},
+        {"montar dos piezas", [](Plan& q) { q.barras[0].piezas[1].inicio -= 1; q.barras[0].piezas[1].fin -= 1; }},
+        {"cambiar el id", [](Plan& q) { q.barras[0].piezas[0].id = 99; }},
+        {"vaciar una barra", [](Plan& q) { q.barras.push_back(BarraPlan{}); }},
+        {"olvidar la que no cabe", [](Plan& q) { q.no_caben.clear(); }},
+        {"meter la que no cabe", [](Plan& q) { q.barras[0].piezas.push_back({3, 6000, 10, 6010}); }},
+        {"pasar a la zona muerta",
+         [](Plan& q) {
+             for (auto& c : q.barras[0].piezas) { c.inicio += 300; c.fin += 300; }
+         }},
+        {"cota mayor que las barras", [](Plan& q) { q.cota = 99; }},
+        {"libre mal calculado", [](Plan& q) { q.barras[0].libre += 1; }},
+    };
+    for (const auto& a : alt) {
+        Plan q = plan;
+        a.f(q);
+        bool rechaza = !validar_plan(piezas, p, q, &motivo);
+        check(rechaza, std::string("validador rechaza: ") + a.desc + " -> " + motivo);
+    }
+
+    // barras iguales agrupadas
+    std::vector<Pieza> iguales = {{1, 2800, 10}};
+    Plan pi = calcular_perfil(iguales, p);
+    auto g = agrupar(pi);
+    check(pi.barras.size() == 5 && g.size() == 1 && g[0].veces == 5, "10 x 2800: 5 barras iguales -> un grupo x 5");
+
+    // mismo largo con dos ids: se reparten en orden y no se mezclan los grupos
+    std::vector<Pieza> dos = {{7, 2800, 2}, {8, 2800, 2}};
+    Plan pd = calcular_perfil(dos, p);
+    auto gd = agrupar(pd);
+    check(validar_plan(dos, p, pd) && pd.barras.size() == 2 && gd.size() == 2,
+          "dos ids con el mismo largo: 2 barras, 2 grupos");
+
+    // parametros sin sentido
+    bool lanza = false;
+    try {
+        calcular_perfil(piezas, Parametros{200, 10, 230, 3});
+    } catch (const std::invalid_argument&) {
+        lanza = true;
+    }
+    check(lanza, "despunte + zona muerta mayor que la barra: error claro");
+
+    // decimas de mm: 1234,5 y 2345,5 con separacion 3,0 en una barra de 6000,0
+    Parametros pdm{60000, 100, 2300, 30};
+    std::vector<Pieza> dec = {{1, 12345, 2}, {2, 23455, 1}};
+    Plan pdec = calcular_perfil(dec, pdm);
+    check(validar_plan(dec, pdm, pdec) && pdec.barras.size() == 1, "decimas: 2x1234,5 + 2345,5 en una barra");
+}
+
+static void determinismo_y_tiempo(const std::string& ruta) {
+    std::puts("== determinismo, tope de tiempo y cancelacion");
+    // un trabajo grande del oraculo (familia variado: muchos largos distintos)
+    std::ifstream f(ruta);
+    std::string linea, ultima;
+    while (std::getline(f, linea))
+        if (!linea.empty() && linea[0] != '#') ultima = linea;
+    std::vector<Pieza> piezas;
+    Parametros p;
+    {
+        std::istringstream in(ultima);
+        std::string sep, tok;
+        in >> p.largo_barra >> p.despunte >> p.zona_muerta >> p.separacion >> sep;
+        int id = 1;
+        while (in >> tok && tok != ";") {
+            size_t k = tok.find(':');
+            piezas.push_back({id++, std::stoll(tok.substr(0, k)), std::stoi(tok.substr(k + 1))});
+        }
+    }
+    Plan a = calcular_perfil(piezas, p);
+    Plan b = calcular_perfil(piezas, p);
+    bool iguales = a.barras.size() == b.barras.size();
+    for (size_t k = 0; iguales && k < a.barras.size(); k++) {
+        iguales = a.barras[k].piezas.size() == b.barras[k].piezas.size();
+        for (size_t i = 0; iguales && i < a.barras[k].piezas.size(); i++)
+            iguales = a.barras[k].piezas[i].id == b.barras[k].piezas[i].id &&
+                      a.barras[k].piezas[i].inicio == b.barras[k].piezas[i].inicio;
+    }
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "misma lista, mismo plan (%zu piezas distintas, %zu barras)", piezas.size(),
+                  a.barras.size());
+    check(iguales && validar_plan(piezas, p, a), buf);
+
+    Control vencido;
+    vencido.limite = std::chrono::steady_clock::now();
+    Plan v = calcular_perfil(piezas, p, 5, &vencido);
+    std::snprintf(buf, sizeof buf, "tope de tiempo ya vencido: plan valido igual (%zu barras, cota %lld, %s)",
+                  v.barras.size(), (long long)v.cota, v.estado == Estado::tiempo_agotado ? "tiempo agotado" : "?");
+    check(validar_plan(piezas, p, v) && v.estado == Estado::tiempo_agotado && v.cota <= (i64)v.barras.size(), buf);
+
+    std::atomic<bool> cancelar{true};
+    Control cc;
+    cc.cancelar = &cancelar;
+    Plan c = calcular_perfil(piezas, p, 5, &cc);
+    check(validar_plan(piezas, p, c) && c.estado == Estado::cancelado, "cancelado antes de empezar: plan valido igual");
+}
+
+static void lectura_numeros() {
+    std::puts("== lectura de numeros");
+    struct C {
+        const char* t;
+        bool ok;
+        long long v;
+    };
+    C casos[] = {{"1234", true, 12340}, {"1234,5", true, 12345}, {"1234.5", true, 12345}, {" 90 ", true, 900},
+                 {",5", true, 5},       {"7,", true, 70},        {"1,25", false, 0},     {"1.234,5", false, 0},
+                 {"-3", false, 0},      {"", false, 0},          {"abc", false, 0},      {"12a", false, 0},
+                 {",", false, 0}};
+    bool todo = true;
+    for (const auto& c : casos) {
+        i64 v = -1;
+        bool ok = leer_decimas(c.t, v);
+        if (ok != c.ok || (ok && v != c.v)) {
+            std::printf("    \"%s\": %s %lld\n", c.t, ok ? "acepta" : "rechaza", (long long)v);
+            todo = false;
+        }
+    }
+    check(todo, "coma o punto decimal, un decimal como mucho, sin signos ni letras");
+}
+
+int main(int argc, char** argv) {
+    std::string ruta = argc > 1 ? argv[1] : "../laboratorio/casos_oraculo.txt";
+    casos_a_mano();
+    contra_branch_and_bound();
+    plan_por_perfil();
+    lectura_numeros();
+    determinismo_y_tiempo(ruta);
+    oraculo(ruta);
+    std::printf("\nFALLOS: %d\n", fallos);
+    return fallos ? 1 : 0;
+}

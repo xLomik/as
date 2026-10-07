@@ -1,0 +1,6 @@
+/build/
+*.o
+*.res
+src/pruebas
+src/NestTubo.exe
+__pycache__/

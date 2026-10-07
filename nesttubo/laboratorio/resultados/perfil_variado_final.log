@@ -1,0 +1,8 @@
+tipos 20 piezas 44 | simples 13 (0.04 s) | LP solo: cota 13 convergio True vueltas 185 mochilas 61 en 0.1 s, error_inv 3.1e-15
+   metodo 1 pasada: 13 barras (cota 13) {'arranques': 1, 'n_lp': 1, 'vueltas': 118, 'mochilas': 28, 'convergio': True} en 0.0 s
+tipos 40 piezas 88 | simples 27 (0.09 s) | LP solo: cota 27 convergio True vueltas 1127 mochilas 165 en 0.4 s, error_inv 1.7e-14
+   metodo 1 pasada: 27 barras (cota 27) {'arranques': 1, 'n_lp': 1, 'vueltas': 434, 'mochilas': 75, 'convergio': True} en 0.3 s
+tipos 79 piezas 166 | simples 52 (0.36 s) | LP solo: cota 52 convergio True vueltas 5222 mochilas 377 en 1.9 s, error_inv 7.3e-14
+   metodo 1 pasada: 52 barras (cota 52) {'arranques': 1, 'n_lp': 1, 'vueltas': 2027, 'mochilas': 180, 'convergio': True} en 1.1 s
+tipos 117 piezas 247 | simples 77 (0.56 s) | LP solo: cota 76 convergio True vueltas 14393 mochilas 644 en 5.9 s, error_inv 2.5e-13
+   metodo 1 pasada: 76 barras (cota 76) {'arranques': 1, 'n_lp': 33, 'vueltas': 32432, 'mochilas': 570, 'convergio': True} en 9.7 s

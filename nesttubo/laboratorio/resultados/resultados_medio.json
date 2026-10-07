@@ -1,0 +1,31 @@
+{
+ "familia": "medio",
+ "trabajos": 300,
+ "semilla": 2026,
+ "parametros": {
+  "L": 6000,
+  "despunte": 10,
+  "zona_muerta": 230,
+  "separacion": 3,
+  "escala": 1
+ },
+ "minimo_conocido": 298,
+ "simples": {
+  "0": 197,
+  "1": 87,
+  "2": 12,
+  "3": 1,
+  "4": 1
+ },
+ "residual": {
+  "0": 298
+ },
+ "residual_certifica": 298,
+ "barras_minimas": 8713,
+ "barras_simples": 8831,
+ "barras_residual": 8713,
+ "piezas_min": 26,
+ "piezas_max": 208,
+ "barras_max": 82,
+ "segundos": 203.3
+}

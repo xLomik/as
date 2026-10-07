@@ -1,0 +1,21 @@
+Falkenauer_t60_00.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 599, 'mochilas': 111, 'convergio': True}
+Falkenauer_t60_01.txt optimo 20 cota 20 metodo 20 {'arranques': 3, 'n_lp': 13, 'vueltas': 5267, 'mochilas': 435, 'convergio': True}
+Falkenauer_t60_02.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 509, 'mochilas': 103, 'convergio': True}
+Falkenauer_t60_03.txt optimo 20 cota 20 metodo 20 {'arranques': 3, 'n_lp': 9, 'vueltas': 2559, 'mochilas': 309, 'convergio': True}
+Falkenauer_t60_04.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 526, 'mochilas': 97, 'convergio': True}
+Falkenauer_t60_05.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 540, 'mochilas': 94, 'convergio': True}
+Falkenauer_t60_06.txt optimo 20 cota 20 metodo 20 {'arranques': 3, 'n_lp': 11, 'vueltas': 3529, 'mochilas': 328, 'convergio': True}
+Falkenauer_t60_07.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 541, 'mochilas': 97, 'convergio': True}
+Falkenauer_t60_08.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 530, 'mochilas': 101, 'convergio': True}
+Falkenauer_t60_09.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 528, 'mochilas': 92, 'convergio': True}
+Falkenauer_t60_10.txt optimo 20 cota 20 metodo 20 {'arranques': 3, 'n_lp': 14, 'vueltas': 4715, 'mochilas': 385, 'convergio': True}
+Falkenauer_t60_11.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 493, 'mochilas': 78, 'convergio': True}
+Falkenauer_t60_12.txt optimo 20 cota 20 metodo 20 {'arranques': 5, 'n_lp': 32, 'vueltas': 9410, 'mochilas': 661, 'convergio': True}
+Falkenauer_t60_13.txt optimo 20 cota 20 metodo 21 {'arranques': 5, 'n_lp': 15, 'vueltas': 4204, 'mochilas': 577, 'convergio': True}
+Falkenauer_t60_14.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 656, 'mochilas': 103, 'convergio': True}
+Falkenauer_t60_15.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 708, 'mochilas': 118, 'convergio': True}
+Falkenauer_t60_16.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 473, 'mochilas': 87, 'convergio': True}
+Falkenauer_t60_17.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 655, 'mochilas': 115, 'convergio': True}
+Falkenauer_t60_18.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 486, 'mochilas': 103, 'convergio': True}
+Falkenauer_t60_19.txt optimo 20 cota 20 metodo 20 {'arranques': 1, 'n_lp': 1, 'vueltas': 661, 'mochilas': 105, 'convergio': True}
+[_t60] 20 instancias | metodo propio (5 arranques): optimo en 19 (95%), +1 en 1, +2 o mas en 0, peor +1 | certifica el minimo en 19 | la cota queda 1 por debajo del optimo en 0 | 0.2 s por instancia (max 1.0)

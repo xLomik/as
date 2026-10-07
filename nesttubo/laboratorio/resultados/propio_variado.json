@@ -1,0 +1,46 @@
+{
+ "familia": "variado",
+ "trabajos": 40,
+ "semilla": 2026,
+ "cota_igual_a_highs": 40,
+ "cota_distinta": 0,
+ "lp_no_convergio": 0,
+ "brecha": {
+  "simples": {
+   "0": 27,
+   "1": 13
+  },
+  "residual": {
+   "0": 35,
+   "1": 5
+  },
+  "final": {
+   "0": 40
+  },
+  "peor_orden": {
+   "0": 39,
+   "1": 1
+  }
+ },
+ "barras": {
+  "simples": 1747,
+  "residual": 1739,
+  "final": 1734,
+  "peor_orden": 1735
+ },
+ "barras_cota": 1734,
+ "arranques_usados": {
+  "1": 39,
+  "2": 1
+ },
+ "tipos_max": 117,
+ "piezas_max": 242,
+ "seg_final": 51.0,
+ "seg_final_max": 9.64,
+ "n_lp_max": 60,
+ "mochilas_max": 1117,
+ "segundos_total": 405.9,
+ "error_inversa_max": 1.5142330923458374e-12,
+ "vueltas_lp_max": 17454,
+ "mochilas_lp_max": 612
+}

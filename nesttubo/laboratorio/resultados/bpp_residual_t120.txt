@@ -1,0 +1,1 @@
+[_t120] 20 instancias | residual: optimo en 2 (10%), +1 en 18, +2 o mas en 0, peor +1 | certifica el minimo en 2 | mejor de 3 simples: optimo en 0, peor +1 | 17.6 s por instancia

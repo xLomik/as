@@ -1,0 +1,15 @@
+OK  dos mitades exactas, sin separacion                          esperado 1 | barras 1 cota 1 (minimo demostrado)
+OK  dos mitades y 1 mm de mas                                    esperado 2 | barras 2 cota 2 (minimo demostrado)
+OK  separacion 3: 3000+2997+3 = 6000 justo                       esperado 1 | barras 1 cota 1 (minimo demostrado)
+OK  separacion 3: 3000+2998+3 = 6001 no cabe                     esperado 2 | barras 2 cota 2 (minimo demostrado)
+OK  zona muerta 230 + despunte 10: util 5760                     esperado 1 | barras 1 cota 1 (minimo demostrado)
+OK  lo mismo con 1 mm mas                                        esperado 2 | barras 2 cota 2 (minimo demostrado)
+OK  una pieza sola ocupa todo el util                            esperado 1 | barras 1 cota 1 (minimo demostrado)
+OK  seis de 1000 en 6000 sin separacion                          esperado 1 | barras 1 cota 1 (minimo demostrado)
+OK  seis de 1000 con separacion 3: 6015 > 6000                   esperado 2 | barras 2 cota 2 (minimo demostrado)
+OK  FFD da 3 aqui; el minimo es 2                                esperado 2 | barras 2 cota 2 (minimo demostrado)
+OK  trabajo 289 de la familia medio (limite conocido)            esperado (23, 24) | barras 24 cota 23 (no demostrado)
+OK  pieza que no cabe -> hay una pieza que no cabe en la barra: quien llama debe apartarla antes
+OK  400 trabajos chicos contra branch and bound: cota <= minimo <= metodo en todos (fallas: 0); metodo = minimo en 400; minimo demostrado en 400
+
+FALLOS: 0

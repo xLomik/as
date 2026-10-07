@@ -1,0 +1,4 @@
+BPPLIB: 46 instancias, inconsistencias 0; cota LP <= optimo <= solucion entera en todas las demas
+        sin converger: 0
+        la solucion entera coincide con el optimo publicado en 32/46  (398 s)
+150 instancias chicas contra branch and bound: inconsistencias 0

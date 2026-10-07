@@ -1,0 +1,1 @@
+[_t120] 20 instancias | metodo propio (5 arranques): optimo en 18 (90%), +1 en 2, +2 o mas en 0, peor +1 | certifica el minimo en 18 | la cota queda 1 por debajo del optimo en 0 | 1.6 s por instancia (max 3.7)

@@ -1,0 +1,43 @@
+{
+ "familia": "decimal",
+ "trabajos": 120,
+ "semilla": 2026,
+ "cota_igual_a_highs": 120,
+ "cota_distinta": 0,
+ "lp_no_convergio": 0,
+ "brecha": {
+  "simples": {
+   "0": 107,
+   "1": 13
+  },
+  "residual": {
+   "0": 120
+  },
+  "final": {
+   "0": 120
+  },
+  "peor_orden": {
+   "0": 120
+  }
+ },
+ "barras": {
+  "simples": 2048,
+  "residual": 2035,
+  "final": 2035,
+  "peor_orden": 2035
+ },
+ "barras_cota": 2035,
+ "arranques_usados": {
+  "1": 120
+ },
+ "tipos_max": 10,
+ "piezas_max": 121,
+ "seg_final": 38.6,
+ "seg_final_max": 1.07,
+ "n_lp_max": 1,
+ "mochilas_max": 10,
+ "segundos_total": 202.9,
+ "error_inversa_max": 8.43769498715119e-15,
+ "vueltas_lp_max": 52,
+ "mochilas_lp_max": 29
+}

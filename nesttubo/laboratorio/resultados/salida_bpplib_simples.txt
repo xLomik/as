@@ -1,0 +1,13 @@
+familia        inst.    piezas | metodo     = optimo    +1  +2 o mas  peor  seg/inst
+Falkenauer U      80  120-1000 | FFD               6    26        48     7     0.005
+Falkenauer U      80  120-1000 | BFD               6    26        48     7     0.008
+Falkenauer U      80  120-1000 | llenado          61    17         2     2     0.047
+                               | cota L1 = optimo en 79/80, cota L2 en 79/80
+Falkenauer T      80    60-501 | FFD               0     0        80    24     0.001
+Falkenauer T      80    60-501 | BFD               0     0        80    24     0.002
+Falkenauer T      80    60-501 | llenado           0    56        24     4     0.104
+                               | cota L1 = optimo en 80/80, cota L2 en 80/80
+Hard28            28   160-200 | FFD               5    23         0     1     0.001
+Hard28            28   160-200 | BFD               5    23         0     1     0.002
+Hard28            28   160-200 | llenado           3    14        11     3     0.011
+                               | cota L1 = optimo en 23/28, cota L2 en 23/28
