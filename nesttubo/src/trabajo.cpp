@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 
 namespace nt {
 
@@ -134,6 +135,7 @@ bool preparar(const Trabajo& t, std::vector<ProblemaPerfil>& problemas, std::vec
     };
     std::vector<std::vector<PiezaDec>> por_perfil(perfiles.size());
     std::vector<std::string> nombres(t.piezas.size());
+    std::vector<i64> ang1(t.piezas.size(), 0), ang2(t.piezas.size(), 0);
     for (size_t i = 0; i < t.piezas.size(); i++) {
         const PiezaTxt& p = t.piezas[i];
         if (fila_vacia(p)) continue;
@@ -161,6 +163,8 @@ bool preparar(const Trabajo& t, std::vector<ProblemaPerfil>& problemas, std::vec
         }
         long long cantidad = 0;
         ok &= entero(p.cantidad, donde, "la cantidad", 1, 100000, cantidad);
+        ang1[i] = a1;
+        ang2[i] = a2;
         if (ok) por_perfil[it->second].push_back({(int)i, largo, (int)cantidad});
     }
     if (!errores.empty()) return false;
@@ -179,6 +183,8 @@ bool preparar(const Trabajo& t, std::vector<ProblemaPerfil>& problemas, std::vec
         pr.cara = d.cara / div;   // la cara solo se dibuja: si trae decimal en mm se redondea abajo
         pr.margen = d.margen;
         pr.nombres = nombres;
+        pr.angulo1 = ang1;
+        pr.angulo2 = ang2;
         for (const auto& pz : por_perfil[k]) pr.piezas.push_back({pz.id, pz.largo / div, pz.cantidad});
         problemas.push_back(std::move(pr));
     }
@@ -191,6 +197,21 @@ bool preparar(const Trabajo& t, std::vector<ProblemaPerfil>& problemas, std::vec
 
 // ---------------------------------------------------------------------------
 // Textos del resultado
+
+ResultadoPerfil resolver(const ProblemaPerfil& prob, const Control* control) {
+    ResultadoPerfil r;
+    r.prob = prob;
+    try {
+        r.plan = calcular_perfil(r.prob.piezas, r.prob.param, 5, control);
+        // toda solucion pasa por el validador antes de mostrarse
+        r.valido = validar_plan(r.prob.piezas, r.prob.param, r.plan, &r.motivo);
+        if (!r.valido) r.motivo = "plan rechazado por el validador: " + r.motivo;
+    } catch (const std::exception& e) {
+        r.valido = false;
+        r.motivo = e.what();
+    }
+    return r;
+}
 
 std::vector<std::string> columnas_resumen() {
     return {"Perfil", "Barra", "Barras a enviar", "Mínimo", "Margen", "Piezas", "Aprov.", "Mínimo demostrado"};

@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -14,6 +16,7 @@
 #include <vector>
 
 #include "nucleo.h"
+#include "salidas.h"
 #include "trabajo.h"
 
 using namespace nt;
@@ -25,7 +28,7 @@ constexpr int TOPE_SEGUNDOS = 20;
 
 enum : int {
     ID_PERFILES = 101, ID_PIEZAS, ID_RESUMEN, ID_PLAN, ID_ESTADO,
-    ID_NUEVO = 201, ID_ABRIR, ID_GUARDAR, ID_GUARDAR_COMO, ID_CALCULAR, ID_CANCELAR, ID_QUITAR_PIEZA, ID_QUITAR_PERFIL,
+    ID_NUEVO = 201, ID_ABRIR, ID_GUARDAR, ID_GUARDAR_COMO, ID_CALCULAR, ID_CANCELAR, ID_QUITAR_PIEZA, ID_QUITAR_PERFIL, ID_EXPORTAR,
     ID_ET_PERFILES = 301, ID_ET_PIEZAS, ID_ET_RESUMEN, ID_ET_PLAN,
 };
 enum : UINT { WM_APP_MOVER = WM_APP + 1, WM_APP_PROGRESO, WM_APP_FIN };
@@ -367,6 +370,7 @@ void botones() {
     EnableWindow(GetDlgItem(app.wnd, ID_CANCELAR), app.calculando);
     for (int id : {ID_NUEVO, ID_ABRIR, ID_GUARDAR, ID_GUARDAR_COMO, ID_QUITAR_PIEZA, ID_QUITAR_PERFIL})
         EnableWindow(GetDlgItem(app.wnd, id), !app.calculando);
+    EnableWindow(GetDlgItem(app.wnd, ID_EXPORTAR), !app.calculando && !app.resultados.empty());
     EnableWindow(app.perfiles, !app.calculando);
     EnableWindow(app.piezas, !app.calculando);
 }
@@ -397,21 +401,10 @@ void calcular() {
         auto res = std::make_unique<Resultado>();
         for (size_t k = 0; k < problemas.size(); k++) {
             PostMessageW(wnd, WM_APP_PROGRESO, k, problemas.size());
-            ResultadoPerfil r;
-            r.prob = problemas[k];
             Control ctl;
             ctl.cancelar = cancelar;
             ctl.limite = std::chrono::steady_clock::now() + std::chrono::seconds(TOPE_SEGUNDOS);
-            try {
-                r.plan = calcular_perfil(r.prob.piezas, r.prob.param, 5, &ctl);
-                // toda solucion pasa por el validador antes de mostrarse
-                r.valido = validar_plan(r.prob.piezas, r.prob.param, r.plan, &r.motivo);
-                if (!r.valido) r.motivo = "plan rechazado por el validador: " + r.motivo;
-            } catch (const std::exception& e) {
-                r.valido = false;
-                r.motivo = e.what();
-            }
-            res->perfiles.push_back(std::move(r));
+            res->perfiles.push_back(resolver(problemas[k], &ctl));
         }
         PostMessageW(wnd, WM_APP_FIN, 0, (LPARAM)res.release());
     });
@@ -421,9 +414,9 @@ void fin_calculo(Resultado* res) {
     std::unique_ptr<Resultado> r(res);
     if (app.hilo.joinable()) app.hilo.join();
     app.calculando = false;
-    botones();
     app.resultados = std::move(r->perfiles);
     app.resultado_viejo = false;
+    botones();
     mostrar_resultados();
     long long total = 0;
     int no_dem = 0, errores = 0, cortados = 0, no_caben = 0;
@@ -553,10 +546,147 @@ bool puede_descartar() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Exportar: PDF, Excel y un DXF por distribucion de barra, a una carpeta.
+
+int CALLBACK carpeta_inicial(HWND w, UINT msg, LPARAM, LPARAM dato) {
+    if (msg == BFFM_INITIALIZED && dato) SendMessageW(w, BFFM_SETSELECTIONW, TRUE, dato);
+    return 0;
+}
+
+// Dialogo de carpeta de Windows 10/11 (el del Explorador). Devuelve false si no
+// se pudo crear: entonces se usa el arbol viejo.
+bool carpeta_moderna(const std::wstring& inicial, std::wstring& carpeta, bool& elegida) {
+    IFileOpenDialog* d = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) return false;
+    DWORD op = 0;
+    d->GetOptions(&op);
+    d->SetOptions(op | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    d->SetTitle(L"Carpeta donde dejar el PDF, el Excel y los DXF");
+    IShellItem* ini = nullptr;
+    if (!inicial.empty() && SUCCEEDED(SHCreateItemFromParsingName(inicial.c_str(), nullptr, IID_PPV_ARGS(&ini)))) {
+        d->SetFolder(ini);
+        ini->Release();
+    }
+    elegida = false;
+    IShellItem* r = nullptr;
+    if (SUCCEEDED(d->Show(app.wnd)) && SUCCEEDED(d->GetResult(&r))) {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(r->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+            carpeta = p;
+            elegida = true;
+            CoTaskMemFree(p);
+        }
+        r->Release();
+    }
+    d->Release();
+    return true;
+}
+
+bool elegir_carpeta(std::wstring& carpeta) {
+    std::wstring inicial = leer_config(L"carpeta_exportar");
+    if (inicial.empty()) inicial = leer_config(L"carpeta");
+    bool elegida = false;
+    if (carpeta_moderna(inicial, carpeta, elegida)) {
+        if (elegida) escribir_config(L"carpeta_exportar", carpeta);
+        return elegida;
+    }
+    BROWSEINFOW b{};
+    b.hwndOwner = app.wnd;
+    b.lpszTitle = L"Carpeta donde dejar el PDF, el Excel y los DXF:";
+    b.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    b.lpfn = carpeta_inicial;
+    b.lParam = (LPARAM)inicial.c_str();
+    PIDLIST_ABSOLUTE id = SHBrowseForFolderW(&b);
+    if (!id) return false;
+    wchar_t ruta[MAX_PATH];
+    bool ok = SHGetPathFromIDListW(id, ruta);
+    CoTaskMemFree(id);
+    if (!ok) return false;
+    carpeta = ruta;
+    escribir_config(L"carpeta_exportar", carpeta);
+    return true;
+}
+
+bool existe(const std::wstring& ruta) { return GetFileAttributesW(ruta.c_str()) != INVALID_FILE_ATTRIBUTES; }
+
+void exportar() {
+    cerrar_edicion(false);
+    if (app.calculando) return;
+    if (app.resultados.empty()) {
+        MessageBoxW(app.wnd, L"Primero calcula las barras: se exporta el último cálculo.", L"NestTubo", MB_ICONINFORMATION);
+        return;
+    }
+    if (app.resultado_viejo) {
+        MessageBoxW(app.wnd, L"Los datos cambiaron desde el último cálculo. Calcula de nuevo antes de exportar.", L"NestTubo",
+                    MB_ICONWARNING);
+        return;
+    }
+    std::wstring carpeta;
+    if (!elegir_carpeta(carpeta)) return;
+    // nombre del trabajo: el del archivo, o "Trabajo" si no se ha guardado
+    std::wstring nombre = L"Trabajo";
+    if (!app.archivo.empty()) {
+        size_t k = app.archivo.find_last_of(L"\\/");
+        nombre = k == std::wstring::npos ? app.archivo : app.archivo.substr(k + 1);
+        size_t p = nombre.find_last_of(L'.');
+        if (p != std::wstring::npos && p > 0) nombre = nombre.substr(0, p);
+    }
+    if (!carpeta.empty() && carpeta.back() != L'\\') carpeta += L'\\';
+    std::wstring pdf = carpeta + nombre + L" - plan.pdf", xlsx = carpeta + nombre + L" - plan.xlsx",
+                 dxf = carpeta + nombre + L" - DXF";
+    if (existe(pdf) || existe(xlsx) || existe(dxf)) {
+        std::wstring q = L"Ya hay una exportación de \"" + nombre + L"\" en esa carpeta.\n\n¿Reemplazarla? Se borran los DXF de la carpeta \"" +
+                         nombre + L" - DXF\" para que no se mezclen los viejos con los nuevos.";
+        if (MessageBoxW(app.wnd, q.c_str(), L"NestTubo", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+        WIN32_FIND_DATAW f;
+        HANDLE h = FindFirstFileW((dxf + L"\\*.dxf").c_str(), &f);
+        if (h != INVALID_HANDLE_VALUE) {
+            do DeleteFileW((dxf + L"\\" + f.cFileName).c_str());
+            while (FindNextFileW(h, &f));
+            FindClose(h);
+        }
+    }
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    char fecha[16];
+    std::snprintf(fecha, sizeof fecha, "%02d/%02d/%04d", t.wDay, t.wMonth, t.wYear);
+    std::string trabajo = U(nombre);
+    estado(L"Exportando...");
+    std::wstring falla;
+    if (!escribir_archivo(pdf, informe_pdf(app.resultados, trabajo, fecha))) falla = pdf;
+    else if (!escribir_archivo(xlsx, informe_xlsx(app.resultados, trabajo, fecha))) falla = xlsx;
+    int n_dxf = 0;
+    if (falla.empty()) {
+        CreateDirectoryW(dxf.c_str(), nullptr);
+        for (const auto& r : app.resultados) {
+            for (const auto& d : dxf_perfil(r)) {
+                std::wstring ruta = dxf + L"\\" + W(d.nombre);
+                if (!escribir_archivo(ruta, d.texto)) { falla = ruta; break; }
+                n_dxf++;
+            }
+            if (!falla.empty()) break;
+        }
+    }
+    if (!falla.empty()) {
+        estado(L"No se pudo exportar.");
+        MessageBoxW(app.wnd, (L"No se pudo escribir\n" + falla + L"\n\n¿Está abierto en otro programa? Ciérralo y vuelve a exportar.").c_str(),
+                    L"NestTubo", MB_ICONERROR);
+        return;
+    }
+    estado(L"Exportado en " + carpeta + L": PDF, Excel y " + std::to_wstring(n_dxf) + L" DXF.");
+    std::wstring msg = L"Listo. En " + carpeta + L" quedaron:\n\n" + nombre + L" - plan.pdf\n" + nombre + L" - plan.xlsx\n" +
+                       nombre + L" - DXF  (" + std::to_wstring(n_dxf) + (n_dxf == 1 ? L" archivo)" : L" archivos)") +
+                       L"\n\n¿Abrir la carpeta?";
+    if (MessageBoxW(app.wnd, msg.c_str(), L"NestTubo", MB_YESNO | MB_ICONINFORMATION) == IDYES)
+        ShellExecuteW(app.wnd, L"open", carpeta.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 void limpiar_resultado() {
     app.resultados.clear();
     app.resultado_viejo = false;
     mostrar_resultados();
+    botones();
 }
 
 void nuevo() {
@@ -572,10 +702,11 @@ void nuevo() {
     estado(L"Trabajo nuevo. Los perfiles se conservan.");
 }
 
-void abrir() {
+// Sin ruta pregunta con el dialogo; con ruta (la que llega al arrastrar un
+// .ntb sobre el programa o al usar "Abrir con") la abre directo.
+void abrir(std::wstring ruta = L"") {
     if (!puede_descartar()) return;
-    std::wstring ruta;
-    if (!dialogo_archivo(false, ruta)) return;
+    if (ruta.empty() && !dialogo_archivo(false, ruta)) return;
     std::string datos, error;
     Trabajo t;
     if (!leer_archivo(ruta, datos) || !de_texto(datos, t, error)) {
@@ -663,6 +794,7 @@ void crear_controles() {
     crear_boton(ID_GUARDAR_COMO, L"Guardar como...");
     crear_boton(ID_CALCULAR, L"Calcular barras");
     crear_boton(ID_CANCELAR, L"Cancelar");
+    crear_boton(ID_EXPORTAR, L"Exportar PDF, Excel y DXF...");
     crear_boton(ID_QUITAR_PERFIL, L"Quitar perfil");
     crear_boton(ID_QUITAR_PIEZA, L"Quitar fila");
     crear_etiqueta(ID_ET_PERFILES, L"Perfiles  (medidas en mm; margen = barras extra a enviar)", app.negrita);
@@ -711,6 +843,8 @@ void acomodar() {
     mover(ID_CALCULAR, x, y, S(150), hb);
     x += S(156);
     mover(ID_CANCELAR, x, y, S(90), hb);
+    x += S(96) + S(24);
+    mover(ID_EXPORTAR, x, y, S(210), hb);
     // dos columnas: entrada a la izquierda, resultado a la derecha
     int top = y + hb + sep;
     int ancho = W_ - 3 * m;
@@ -826,7 +960,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_GETMINMAXINFO: {
         auto* mm = (MINMAXINFO*)l;
-        mm->ptMinTrackSize.x = S(900);
+        mm->ptMinTrackSize.x = S(950);
         mm->ptMinTrackSize.y = S(560);
         return 0;
     }
@@ -852,6 +986,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case ID_GUARDAR: guardar(false); break;
         case ID_GUARDAR_COMO: guardar(true); break;
         case ID_CALCULAR: calcular(); break;
+        case ID_EXPORTAR: exportar(); break;
         case ID_CANCELAR:
             app.cancelar = true;
             estado(L"Cancelando: se muestra lo mejor que se tenga...");
@@ -884,6 +1019,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     app.inst = inst;
+    OleInitialize(nullptr);   // el dialogo de carpeta nuevo lo necesita
     INITCOMMONCONTROLSEX ic{sizeof(ic), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES};
     InitCommonControlsEx(&ic);
     WNDCLASSEXW wc{};
@@ -903,6 +1039,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
                              MulDiv(1360, dpi, 96), MulDiv(820, dpi, 96), nullptr, nullptr, inst, nullptr);
     ShowWindow(h, show);
     UpdateWindow(h);
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv && argc > 1) abrir(argv[1]);
+    if (argv) LocalFree(argv);
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         TranslateMessage(&msg);

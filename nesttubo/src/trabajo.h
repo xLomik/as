@@ -41,6 +41,7 @@ struct ProblemaPerfil {
     int margen = 0;                     // barras extra a enviar
     std::vector<Pieza> piezas;          // id = indice de la fila en Trabajo::piezas
     std::vector<std::string> nombres;   // nombre de cada fila de piezas (por id)
+    std::vector<i64> angulo1, angulo2;  // angulo de cada extremo por id, en decimas de grado (0 = recto)
 };
 
 // Lee las dos tablas. Devuelve false y llena `errores` (uno por linea, con la
@@ -58,6 +59,10 @@ struct ResultadoPerfil {
     std::string motivo;   // si no es valido, por que
     i64 barras_enviar() const { return (i64)plan.barras.size() + prob.margen; }
 };
+
+// Calcula un perfil y pasa el plan por el validador. Nunca lanza: un error
+// queda en `motivo` con valido = false.
+ResultadoPerfil resolver(const ProblemaPerfil& prob, const Control* control = nullptr);
 
 // Columnas del resumen: perfil, barra, barras a enviar, minimo calculado,
 // margen, piezas, aprovechamiento, minimo demostrado.

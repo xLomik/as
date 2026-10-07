@@ -1,6 +1,6 @@
 NestTubo - cuántas barras de tubo enviar a corte láser
 =======================================================
-Versión 0.1 (primera entrega, 2026-10-07)
+Versión 0.2 (borradores de PDF, Excel y DXF, 2026-10-07)
 
 Qué hace
 --------
@@ -21,11 +21,25 @@ Cómo se usa
 3. Tabla "Piezas del pedido": una pieza por fila.
    - Largo: de punta a punta, en mm. Acepta coma o punto y un decimal.
    - Ángulo 1 y 2: 0 = corte recto, 45 = inglete. En blanco cuenta como 0.
-     Por ahora no cambian el cálculo; servirán para el DXF.
+     No cambian el cálculo (cada pieza ocupa su largo de punta a punta);
+     se usan para dibujar el DXF.
    - Si escribes un perfil que no está en la tabla de perfiles, se agrega solo.
    - Al empezar una fila nueva se copia el perfil de la fila de arriba.
 4. "Calcular barras". Arriba a la derecha sale el resumen por perfil; al
    escoger un perfil, abajo a la derecha sale su plan por barra.
+5. "Exportar PDF, Excel y DXF...": escoges una carpeta y ahí quedan
+   - <trabajo> - plan.pdf: resumen en la primera página y, después, cada
+     perfil con el dibujo de cada barra y sus piezas.
+   - <trabajo> - plan.xlsx: hojas Resumen, Plan (una fila por pieza, con
+     perfil y barra en cada fila para poder filtrar) y Piezas.
+   - carpeta <trabajo> - DXF: un DXF por cada distribución distinta de barra
+     ("barras 1-3 x3" = tres barras iguales). Es un dibujo de la cara más
+     ancha, en mm, para ver en AutoCAD; no es un archivo de corte.
+   <trabajo> es el nombre del archivo .ntb, o "Trabajo" si no lo has
+   guardado. Si cambias datos después de calcular, hay que calcular de nuevo
+   antes de exportar.
+
+También puedes arrastrar un archivo .ntb sobre NestTubo.exe para abrirlo.
 
 Teclas: clic en una celda para editarla; Enter baja, Tab pasa a la derecha,
 Esc cancela lo escrito, Supr quita las filas seleccionadas.
@@ -48,9 +62,16 @@ Dónde quedan los datos
 - La tabla de perfiles se recuerda entre trabajos en
   %APPDATA%\NestTubo\perfiles.ntb. "Nuevo" borra las piezas y deja los perfiles.
 
+El dibujo del DXF
+----------------
+Cada pieza se ve por la cara más ancha del perfil (columna "Cara ancha"). El
+borde de abajo mide el largo de punta a punta; arriba, cada extremo con ángulo
+se recorta cara x tan(ángulo), así que una pieza 45/45 queda como un trapecio,
+igual que una pieza de marco. Si el perfil no tiene cara, se dibuja de 50 mm y
+el título lo dice.
+
 Todavía no tiene
 ----------------
-- Salidas en PDF, Excel y DXF (siguiente entrega).
 - Carpeta de datos fija (de red con respaldo local): por ahora cada trabajo se
   guarda donde elijas.
 

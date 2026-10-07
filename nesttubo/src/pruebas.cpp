@@ -10,11 +10,16 @@
 // 5. Determinismo, tope de tiempo y cancelacion.
 // 6. Lectura de numeros con coma o punto.
 // 7. El trabajo digitado: lectura, errores, archivo y textos del resultado.
+// 8. Salidas: PDF, Excel y DXF (estructura; la lectura con programas aparte va
+//    en compilar.sh salidas).
+//
+//   ./pruebas --salidas CARPETA trabajo.ntb   escribe el PDF, el Excel y los DXF
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -24,6 +29,7 @@
 #include <vector>
 
 #include "nucleo.h"
+#include "salidas.h"
 #include "trabajo.h"
 
 using namespace nt;
@@ -527,13 +533,178 @@ static void trabajo_digitado() {
     check(medida(12345, 10) == "1234,5" && medida(12340, 10) == "1234" && medida(77, 1) == "77", "medidas con coma decimal");
 }
 
+static const char* TRABAJO_EJEMPLO =
+    "NESTTUBO\t1\n[perfiles]\n"
+    "Cuadrado 40x40x2\t40\t6000\t10\t230\t3\t0\n"
+    "Ángulo 30x30x3\t30\t6400\t10\t230\t3\t1\n"
+    "Rect 80/40\t\t6000\t10\t230\t3\t0\n"
+    "[piezas]\n"
+    "Cuadrado 40x40x2\tLarguero\t1250\t0\t45\t8\n"
+    "Cuadrado 40x40x2\tTravesaño\t640,5\t0\t0\t12\n"
+    "Ángulo 30x30x3\tRefuerzo\t455\t45\t45\t30\n"
+    "Ángulo 30x30x3\tViga demasiado larga\t6300\t0\t0\t1\n"
+    "Rect 80/40\tPoste (A)\t2400\t0\t0\t6\n";
+
+static std::vector<ResultadoPerfil> resolver_texto(const std::string& texto, std::string& error) {
+    Trabajo t;
+    std::vector<ResultadoPerfil> rs;
+    if (!de_texto(texto, t, error)) return rs;
+    std::vector<ProblemaPerfil> pr;
+    std::vector<std::string> err;
+    if (!preparar(t, pr, err)) {
+        error = err.empty() ? "?" : err[0];
+        return rs;
+    }
+    for (const auto& p : pr) rs.push_back(resolver(p));
+    return rs;
+}
+
+static uint32_t le32(const std::string& s, size_t i) {
+    return (uint32_t)(unsigned char)s[i] | (uint32_t)(unsigned char)s[i + 1] << 8 | (uint32_t)(unsigned char)s[i + 2] << 16 |
+           (uint32_t)(unsigned char)s[i + 3] << 24;
+}
+
+static int contar(const std::string& s, const std::string& que) {
+    int n = 0;
+    for (size_t i = s.find(que); i != std::string::npos; i = s.find(que, i + 1)) n++;
+    return n;
+}
+
+static void salidas() {
+    std::puts("== salidas");
+    check(a_winansi("Ángulo × · € →") == "\xC1ngulo \xD7 \xB7 \x80 ?", "WinAnsi: tildes, por, punto medio, euro; lo demas '?'");
+    check(sin_tildes("Ángulo Travesaño ñ ×") == "Angulo Travesano n x", "sin tildes para el DXF");
+    std::string z = zip_sin_comprimir({{"a.txt", "123456789"}});
+    check(le32(z, 0) == 0x04034b50 && le32(z, 14) == 0xCBF43926 && le32(z, z.size() - 22) == 0x06054b50,
+          "ZIP: cabecera, CRC32 de \"123456789\" = CBF43926, directorio al final");
+
+    std::string error;
+    auto rs = resolver_texto(TRABAJO_EJEMPLO, error);
+    bool ok = rs.size() == 3 && rs[0].valido && rs[1].valido && rs[2].valido;
+    check(ok, "trabajo de ejemplo calculado " + error);
+    if (!ok) return;
+
+    // PDF: la tabla xref apunta a cada objeto y el texto va en WinAnsi
+    std::string pdf = informe_pdf(rs, "Ejemplo", "07/10/2026");
+    size_t sx = pdf.rfind("startxref\n");
+    bool xref = pdf.compare(0, 9, "%PDF-1.4\n") == 0 && sx != std::string::npos;
+    size_t px = xref ? std::stoul(pdf.substr(sx + 10)) : 0;
+    xref = xref && pdf.compare(px, 5, "xref\n") == 0;
+    int objetos = 0;
+    if (xref) {
+        std::istringstream in(pdf.substr(px + 5));
+        int desde, n;
+        in >> desde >> n;
+        std::string linea;
+        std::getline(in, linea);
+        std::getline(in, linea);   // el objeto 0
+        for (int k = 1; k < n && xref; k++) {
+            std::getline(in, linea);
+            size_t off = std::stoul(linea.substr(0, 10));
+            std::string cab = std::to_string(k) + " 0 obj\n";
+            xref = linea.size() == 19 && pdf.compare(off, cab.size(), cab) == 0;   // 20 con el \n
+            objetos++;
+        }
+    }
+    check(xref && objetos >= 6, "PDF: xref con " + std::to_string(objetos) + " objetos, cada uno donde dice");
+    check(pdf.find("(Barras a enviar al proveedor de corte l\\341ser) Tj") != std::string::npos &&
+              pdf.find("(Travesa\\361o") != std::string::npos,
+          "PDF: titulo y nombres con tilde en WinAnsi");
+    check(pdf.find("/Count 4") != std::string::npos, "PDF: resumen + una pagina por perfil = 4 paginas");
+    check(informe_pdf(rs, "Ejemplo", "07/10/2026") == pdf, "PDF: mismo trabajo, mismos bytes");
+
+    // Excel: 8 partes, texto con tildes en UTF-8, total de barras
+    std::string xl = informe_xlsx(rs, "Ejemplo", "07/10/2026");
+    i64 total = 0;
+    for (const auto& r : rs) total += r.barras_enviar();
+    check(contar(xl, std::string("PK\x03\x04", 4)) == 8 && xl.find("Travesaño") != std::string::npos &&
+              xl.find("<sheet name=\"Plan\"") != std::string::npos &&
+              xl.find("<c r=\"C" + std::to_string(rs.size() + 3) + "\" s=\"3\"><v>" + std::to_string(total) + "</v>") !=
+                  std::string::npos,
+          "Excel: 8 partes, tildes en UTF-8, total " + std::to_string(total) + " barras al pie del resumen");
+
+    // DXF: una por distribucion, ASCII, lineas contadas, nombres validos en Windows
+    size_t grupos = 0, archivos = 0;
+    bool ascii = true, nombres = true, lineas = true;
+    for (const auto& r : rs) {
+        auto g = agrupar(r.plan);
+        auto ds = dxf_perfil(r);
+        grupos += g.size();
+        archivos += ds.size();
+        for (size_t i = 0; i < ds.size() && i < g.size(); i++) {
+            for (unsigned char c : ds[i].texto) ascii &= c < 128;
+            for (char c : ds[i].nombre) nombres &= std::string("<>:\"/\\|?*").find(c) == std::string::npos && (unsigned char)c < 128;
+            size_t piezas = r.plan.barras[g[i].primera].piezas.size();
+            lineas &= contar(ds[i].texto, "0\r\nLINE\r\n") == (int)(4 + 1 + 3 + 4 * piezas);
+            lineas &= ds[i].texto.size() > 8 && ds[i].texto.compare(ds[i].texto.size() - 8, 8, "0\r\nEOF\r\n") == 0;
+        }
+    }
+    check(grupos == archivos && ascii && nombres && lineas,
+          "DXF: " + std::to_string(archivos) + " archivos, uno por distribucion, ASCII, 4 lineas por pieza, nombres validos");
+    auto d1 = dxf_perfil(rs[1]);
+    check(!d1.empty() && d1[0].nombre.rfind("Angulo 30x30x3 - barra", 0) == 0, "DXF: nombre sin tilde (" +
+                                                                                  (d1.empty() ? "" : d1[0].nombre) + ")");
+    auto d2 = dxf_perfil(rs[2]);
+    check(!d2.empty() && d2[0].nombre.rfind("Rect 80-40 - barra", 0) == 0 &&
+              d2[0].texto.find("cara no indicada") != std::string::npos,
+          "DXF: '/' fuera del nombre; perfil sin cara se dibuja de 50 y lo dice");
+
+    // trapecio: pieza de 1000 con 0 y 45 grados en cara 40 -> arriba retrocede 40 en el extremo 2
+    ResultadoPerfil t;
+    t.prob.nombre = "T";
+    t.prob.param = Parametros{6000, 10, 230, 3};
+    t.prob.cara = 40;
+    t.prob.piezas = {{0, 1000, 1}};
+    t.prob.nombres = {"P"};
+    t.prob.angulo1 = {0};
+    t.prob.angulo2 = {450};
+    t = resolver(t.prob);
+    auto dt = dxf_perfil(t);
+    auto seg = [](double x1, double y1, double x2, double y2) {
+        char b[200];
+        std::snprintf(b, sizeof b, "10\r\n%.3f\r\n20\r\n%.3f\r\n30\r\n0.0\r\n11\r\n%.3f\r\n21\r\n%.3f\r\n", x1, y1, x2, y2);
+        return std::string(b);
+    };
+    check(dt.size() == 1 && dt[0].texto.find(seg(1010, 0, 970, 40)) != std::string::npos &&
+              dt[0].texto.find(seg(10, 40, 10, 0)) != std::string::npos,
+          "DXF: extremo a 45 grados en cara 40 retrocede 40 arriba; extremo a 0 vertical");
+}
+
+// Escribe el PDF, el Excel y los DXF de un trabajo, para revisarlos con otros programas.
+static int escribir_salidas(const std::string& carpeta, const std::string& ruta) {
+    std::ifstream in(ruta, std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string error;
+    auto rs = resolver_texto(ss.str(), error);
+    if (rs.empty()) {
+        std::fprintf(stderr, "%s: %s\n", ruta.c_str(), error.c_str());
+        return 1;
+    }
+    namespace fs = std::filesystem;
+    std::string nombre = fs::path(ruta).stem().string();
+    fs::create_directories(fs::path(carpeta) / (nombre + " - DXF"));
+    auto escribir = [](const fs::path& p, const std::string& datos) {
+        std::ofstream o(p, std::ios::binary);
+        o << datos;
+        std::printf("%s (%zu bytes)\n", p.string().c_str(), datos.size());
+    };
+    escribir(fs::path(carpeta) / (nombre + " - plan.pdf"), informe_pdf(rs, nombre, "07/10/2026"));
+    escribir(fs::path(carpeta) / (nombre + " - plan.xlsx"), informe_xlsx(rs, nombre, "07/10/2026"));
+    for (const auto& r : rs)
+        for (const auto& d : dxf_perfil(r)) escribir(fs::path(carpeta) / (nombre + " - DXF") / d.nombre, d.texto);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc == 4 && std::string(argv[1]) == "--salidas") return escribir_salidas(argv[2], argv[3]);
     std::string ruta = argc > 1 ? argv[1] : "../laboratorio/casos_oraculo.txt";
     casos_a_mano();
     contra_branch_and_bound();
     plan_por_perfil();
     lectura_numeros();
     trabajo_digitado();
+    salidas();
     determinismo_y_tiempo(ruta);
     oraculo(ruta);
     std::printf("\nFALLOS: %d\n", fallos);

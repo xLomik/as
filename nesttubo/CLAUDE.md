@@ -47,16 +47,17 @@ Los puntos 1 a 4 de la primera ronda ya están en "Requisitos confirmados". Sigu
 - Si la skill `apps-windows-cpp` está disponible, cárgala antes de escribir código: es de Camilo y trae las recetas de Win32, Excel a mano y carpetas de red. Lo imprescindible está repetido aquí.
 
 ## Construir y probar [M]
-Código en `src/`: `nucleo.cpp` (cálculo), `trabajo.cpp` (lectura de las tablas, archivo .ntb y textos del resultado; sin Win32), `main.cpp` (ventana), `pruebas.cpp`.
+Código en `src/`: `nucleo.cpp` (cálculo), `trabajo.cpp` (lectura de las tablas, archivo .ntb y textos del resultado; sin Win32), `salidas.cpp` (PDF, Excel y DXF escritos a mano; sin Win32), `main.cpp` (ventana), `pruebas.cpp`.
 ```bash
 apt-get update && apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 wine64 xdotool xvfb imagemagick   # Ubuntu 24.04: GCC 13, wine 9.0
-./compilar.sh pruebas   # nucleo y trabajo nativos con sanitizadores + oraculo: debe terminar en "FALLOS: 0" (unos 20 s)
+./compilar.sh pruebas   # nucleo, trabajo y salidas nativos con sanitizadores + oraculo: debe terminar en "FALLOS: 0" (unos 20 s)
+build/pruebas --salidas CARPETA ejemplos/ejemplo.ntb   # escribe el PDF, el Excel y los DXF sin pasar por la ventana
 ./compilar.sh exe       # build/NestTubo.exe con mingw; imprime las DLL (solo deben salir DLL de Windows)
 # ejecutarlo de verdad y mirar la captura (wine no queda en el PATH)
 export DISPLAY=:99 WINEPREFIX=$HOME/.winep WINEDEBUG=-all
 pidof Xvfb >/dev/null || (setsid nohup Xvfb :99 -screen 0 1400x1000x24 >/dev/null 2>&1 &)
 [ -f $WINEPREFIX/system.reg ] || { WINEDLLOVERRIDES="mscoree,mshtml=" /usr/lib/wine/wine64 wineboot --init; /usr/lib/wine/wineserver -w; }
-(setsid nohup /usr/lib/wine/wine64 build/NestTubo.exe >/dev/null 2>&1 &); sleep 8; import -window root captura.png
+(setsid nohup /usr/lib/wine/wine64 build/NestTubo.exe 'Z:\ruta\trabajo.ntb' >/dev/null 2>&1 &); sleep 8; import -window root captura.png   # el .ntb es opcional: lo abre al arrancar
 /usr/lib/wine/wineserver -k
 ```
 - El prefijo de wine se crea una sola vez con `wineboot` y hay que esperarlo (45 s, unos 700 MB). Sin eso la captura muestra el aviso de wine, y matar wine a medias deja el prefijo roto ("could not load kernel32.dll"): se borra la carpeta y se repite.
@@ -101,9 +102,10 @@ Reglas para el código:
 ## Salidas
 - Resumen (pantalla, primera hoja del Excel y primera página del PDF): perfil · largo de barra · **barras a enviar** · piezas · aprovechamiento · mínimo demostrado sí/no.
 - Plan por barra: barras iguales agrupadas ("× N"), piezas en orden con su inicio y su fin, y sobrante.
-- Excel: `.xlsx` escrito a mano (ZIP sin comprimir + XML, texto con `t="inlineStr"`); la receta está en la skill. [S] No se probó aquí.
+- Excel: `.xlsx` escrito a mano (ZIP sin comprimir + XML, texto con `t="inlineStr"`); la receta está en la skill. [M] Lo abren openpyxl y LibreOffice (`soffice --headless --convert-to pdf`).
 - PDF: escrito a mano con Helvetica estándar y `WinAnsiEncoding` para las tildes. [M] Receta en `laboratorio/recetas/pdf_minimo.py`; la abren `pdftotext` y `pdftoppm`.
 - DXF para AutoCAD: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1: enséñasela antes de darla por buena.
+- Exportar (botón de la ventana) [M]: pide una carpeta y deja `<trabajo> - plan.pdf`, `<trabajo> - plan.xlsx` y la carpeta `<trabajo> - DXF`. Solo exporta un cálculo vigente; si ya hay una exportación del mismo trabajo, pregunta y borra los DXF viejos de esa carpeta para que no se mezclen. Bajo wine sale idéntico byte a byte a `pruebas --salidas`.
 
 ## Antes de entregar algo
 1. Pruebas del núcleo en verde: los casos calculables a mano de `laboratorio/pruebas_propio.py` y la comparación con el oráculo.
