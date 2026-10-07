@@ -19,6 +19,11 @@ Mantén este archivo al día: cuando un [S] se confirme, corrígelo aquí, y bor
 - La máquina del proveedor es un láser de tubo.
 - Los datos se guardan en una carpeta que él elige. Se le propuso que pueda ser de red y que, si no responde, se guarde local y se sincronice después.
 - Entrega: un `.exe` nativo en C++, compilado y probado en la nube. Él no instala nada.
+- Parámetros de máquina (2026-10-07): usar 6000 mm de barra, 230 de zona muerta, 3 de separación y 10 de despunte como valores iniciales, editables por perfil. No son del proveedor: él no los dio.
+- Largo de una pieza: de punta a punta, lo que ocupa en la barra (2026-10-07).
+- Ángulo de cada extremo: 0 = corte recto, 45 = inglete, visto sobre la cara más ancha (2026-10-07). Es la desviación respecto al corte recto, no el ángulo con el eje.
+- El proveedor nestea por su cuenta (2026-10-07): su programa puede pedir más barras que el mínimo, así que hay margen de seguridad configurable.
+- El DXF se abre en AutoCAD (2026-10-07).
 
 ## Fuera de alcance (no lo construyas si no lo pide)
 - Importar DXF, STEP o Excel: los descartó como entrada. Su otro programa, TuboDXF, ya saca DXF y lista de piezas, y no pidió conectarlos.
@@ -27,11 +32,9 @@ Mantén este archivo al día: cuando un [S] se confirme, corrígelo aquí, y bor
 - Pegar filas copiadas de Excel y multiplicar cantidades por número de conjuntos: son ideas de quien escribió este documento, Camilo no las pidió. Ofrécelas después de la primera versión.
 
 ## Por confirmar [S]
-Pregunta los puntos 1 a 4 en una sola ronda antes de diseñar las salidas. No preguntes nada de "Requisitos confirmados".
-1. Parámetros de la máquina del proveedor: largo de barra (provisional 6000 mm, editable por perfil); tramo final que el mandril no deja cortar, o "zona muerta" (provisional 230 mm: es el ejemplo del manual de TubesT para una máquina de dos mandriles; con tres mandriles puede ser 0, y otra fuente habla de 254 a 508 mm); separación entre piezas y despunte inicial (provisionales 3 y 10 mm: números de laboratorio, no del proveedor).
-2. Qué mide "largo" en una pieza con extremos en ángulo (provisional: de punta a punta, que es lo que ocupa en la barra) y cómo expresa el ángulo (provisional: 90 = corte recto, 45 = inglete, visto sobre la cara más ancha).
-3. Si el proveedor corta siguiendo este plan o nestea por su cuenta. En el segundo caso su programa puede necesitar más barras que el mínimo: ofrecer un margen de seguridad configurable.
-4. Con qué programa abre el DXF (decide versión y entidades).
+Los puntos 1 a 4 de la primera ronda ya están en "Requisitos confirmados". Siguen provisionales:
+- Margen de seguridad (provisional): barras extra por perfil, valor inicial 0; se muestran el mínimo calculado y las barras a enviar.
+- Dirección del inglete en el DXF cuando los dos extremos tienen ángulo (provisional: trapecio, como una pieza de marco, con los dos cortes abriéndose hacia afuera). Enséñalo en el primer borrador.
 - Catálogo de perfiles (provisional): nombre libre + medida de la cara más ancha + largo de barra, guardado en la carpeta de datos.
 - DXF repetidos (provisional): un archivo por distribución distinta, con "xN" en el nombre.
 - Al digitar, aceptar coma o punto como separador decimal (provisional).
@@ -105,7 +108,7 @@ Reglas para el código:
 - Plan por barra: barras iguales agrupadas ("× N"), piezas en orden con su inicio y su fin, y sobrante.
 - Excel: `.xlsx` escrito a mano (ZIP sin comprimir + XML, texto con `t="inlineStr"`); la receta está en la skill. [S] No se probó aquí.
 - PDF: escrito a mano con Helvetica estándar y `WinAnsiEncoding` para las tildes. [M] Receta en `laboratorio/recetas/pdf_minimo.py`; la abren `pdftotext` y `pdftoppm`.
-- DXF: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1: enséñasela antes de darla por buena.
+- DXF para AutoCAD: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1: enséñasela antes de darla por buena.
 
 ## Antes de entregar algo
 1. Pruebas del núcleo en verde: los casos calculables a mano de `laboratorio/pruebas_propio.py` y la comparación con el oráculo.
