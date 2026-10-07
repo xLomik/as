@@ -80,6 +80,43 @@ std::vector<std::string> fila_resumen(const ResultadoPerfil& r);
 std::vector<std::string> columnas_plan();
 std::vector<std::vector<std::string>> filas_plan(const ResultadoPerfil& r);
 
+// ---------------------------------------------------------------------------
+// Catalogo de perfiles compartido entre equipos (carpeta de datos).
+// Cada equipo manda solo lo que cambio a mano: perfiles editados o agregados y
+// perfiles quitados. Asi dos equipos no se pisan y abrir un trabajo viejo no
+// cambia el catalogo.
+
+// Nombre de perfil para comparar: sin espacios en los extremos y sin distinguir
+// mayusculas (como al leer las piezas).
+std::string clave_perfil(const std::string& nombre);
+
+struct CambiosCatalogo {
+    std::vector<PerfilTxt> cambiados;   // valores nuevos; reemplazan por nombre o se agregan al final
+    std::vector<std::string> quitados;  // nombres que se borran
+    bool vacio() const { return cambiados.empty() && quitados.empty(); }
+};
+
+// Junta `nuevos` sobre `viejos` (lo de `nuevos` gana para el mismo nombre).
+void juntar_cambios(CambiosCatalogo& viejos, const CambiosCatalogo& nuevos);
+
+// El catalogo con los cambios aplicados. Las filas vacias y los nombres repetidos
+// del catalogo se limpian (queda la primera).
+std::vector<PerfilTxt> aplicar_cambios(const std::vector<PerfilTxt>& catalogo, const CambiosCatalogo& c);
+
+// Cambios de esta sesion a partir de la tabla: `tocados` y `quitados` son claves.
+// Un tocado que ya no esta en la tabla no se manda; un quitado que volvio a la
+// tabla tampoco se borra.
+CambiosCatalogo cambios_de_tabla(const std::vector<PerfilTxt>& tabla, const std::vector<std::string>& tocados,
+                                 const std::vector<std::string>& quitados);
+
+// Primera vez con una carpeta que ya tiene catalogo: gana la carpeta para el
+// mismo nombre y se agregan los perfiles que solo tiene este equipo.
+std::vector<PerfilTxt> unir_catalogos(const std::vector<PerfilTxt>& carpeta, const std::vector<PerfilTxt>& local);
+
+// Archivo de cambios pendientes (cuando la carpeta no responde).
+std::string a_texto_cambios(const CambiosCatalogo& c);
+bool de_texto_cambios(const std::string& texto, CambiosCatalogo& c, std::string& error);
+
 // Archivo de trabajo: texto UTF-8 separado por tabuladores.
 std::string a_texto(const Trabajo& t);
 bool de_texto(const std::string& texto, Trabajo& t, std::string& error);

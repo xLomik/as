@@ -305,6 +305,76 @@ std::string limpio(const std::string& s) {
 }
 }  // namespace
 
+std::string clave_perfil(const std::string& nombre) { return minusculas(nombre); }
+
+namespace {
+int buscar(const std::vector<PerfilTxt>& v, const std::string& clave) {
+    for (size_t i = 0; i < v.size(); i++)
+        if (clave_perfil(v[i].nombre) == clave) return (int)i;
+    return -1;
+}
+bool esta(const std::vector<std::string>& v, const std::string& x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+}  // namespace
+
+void juntar_cambios(CambiosCatalogo& viejos, const CambiosCatalogo& nuevos) {
+    for (const std::string& q : nuevos.quitados) {
+        std::string k = clave_perfil(q);
+        int i = buscar(viejos.cambiados, k);
+        if (i >= 0) viejos.cambiados.erase(viejos.cambiados.begin() + i);
+        if (!esta(viejos.quitados, k)) viejos.quitados.push_back(k);
+    }
+    for (const PerfilTxt& p : nuevos.cambiados) {
+        std::string k = clave_perfil(p.nombre);
+        if (k.empty()) continue;
+        auto it = std::find(viejos.quitados.begin(), viejos.quitados.end(), k);
+        if (it != viejos.quitados.end()) viejos.quitados.erase(it);
+        int i = buscar(viejos.cambiados, k);
+        if (i >= 0) viejos.cambiados[i] = p;
+        else viejos.cambiados.push_back(p);
+    }
+}
+
+std::vector<PerfilTxt> aplicar_cambios(const std::vector<PerfilTxt>& catalogo, const CambiosCatalogo& c) {
+    std::vector<PerfilTxt> r;
+    for (const PerfilTxt& p : catalogo) {
+        std::string k = clave_perfil(p.nombre);
+        if (k.empty() || buscar(r, k) >= 0) continue;
+        bool quitado = false;
+        for (const std::string& q : c.quitados) quitado |= clave_perfil(q) == k;
+        if (!quitado) r.push_back(p);
+    }
+    for (const PerfilTxt& p : c.cambiados) {
+        std::string k = clave_perfil(p.nombre);
+        if (k.empty()) continue;
+        int i = buscar(r, k);
+        if (i >= 0) r[i] = p;
+        else r.push_back(p);
+    }
+    return r;
+}
+
+CambiosCatalogo cambios_de_tabla(const std::vector<PerfilTxt>& tabla, const std::vector<std::string>& tocados,
+                                 const std::vector<std::string>& quitados) {
+    CambiosCatalogo c;
+    for (const std::string& t : tocados) {
+        std::string k = clave_perfil(t);
+        int i = buscar(tabla, k);
+        if (!k.empty() && i >= 0 && buscar(c.cambiados, k) < 0) c.cambiados.push_back(tabla[i]);
+    }
+    for (const std::string& q : quitados) {
+        std::string k = clave_perfil(q);
+        if (!k.empty() && buscar(tabla, k) < 0 && !esta(c.quitados, k)) c.quitados.push_back(k);
+    }
+    return c;
+}
+
+std::vector<PerfilTxt> unir_catalogos(const std::vector<PerfilTxt>& carpeta, const std::vector<PerfilTxt>& local) {
+    CambiosCatalogo solo_local;
+    for (const PerfilTxt& p : local)
+        if (!clave_perfil(p.nombre).empty() && buscar(carpeta, clave_perfil(p.nombre)) < 0) solo_local.cambiados.push_back(p);
+    return aplicar_cambios(carpeta, solo_local);
+}
+
 std::string a_texto(const Trabajo& t) {
     std::ostringstream o;
     o << "NESTTUBO\t1\r\n[perfiles]\r\n";
@@ -365,6 +435,69 @@ bool de_texto(const std::string& texto, Trabajo& t, std::string& error) {
             t.piezas.push_back(p);
         } else {
             error = "linea " + std::to_string(n) + ": fuera de las secciones [perfiles] y [piezas]";
+            return false;
+        }
+    }
+    if (!cabecera) {
+        error = "archivo vacío";
+        return false;
+    }
+    return true;
+}
+
+// Cambios pendientes del catalogo:
+//
+//   NESTTUBO-CAMBIOS<TAB>1
+//   [cambiados]
+//   nombre<TAB>cara<TAB>barra<TAB>despunte<TAB>zona_muerta<TAB>separacion<TAB>margen
+//   [quitados]
+//   nombre
+
+std::string a_texto_cambios(const CambiosCatalogo& c) {
+    std::ostringstream o;
+    o << "NESTTUBO-CAMBIOS\t1\r\n[cambiados]\r\n";
+    for (const auto& p : c.cambiados)
+        o << limpio(p.nombre) << '\t' << limpio(p.cara) << '\t' << limpio(p.barra) << '\t' << limpio(p.despunte) << '\t'
+          << limpio(p.zona_muerta) << '\t' << limpio(p.separacion) << '\t' << limpio(p.margen) << "\r\n";
+    o << "[quitados]\r\n";
+    for (const auto& q : c.quitados) o << limpio(q) << "\r\n";
+    return o.str();
+}
+
+bool de_texto_cambios(const std::string& texto, CambiosCatalogo& c, std::string& error) {
+    c = CambiosCatalogo{};
+    std::istringstream in(texto);
+    std::string linea;
+    int seccion = 0;
+    bool cabecera = false;
+    while (std::getline(in, linea)) {
+        if (!linea.empty() && linea.back() == '\r') linea.pop_back();
+        if (!cabecera) {
+            if (linea.rfind("NESTTUBO-CAMBIOS", 0) != 0) {
+                error = "no es un archivo de cambios de NestTubo";
+                return false;
+            }
+            cabecera = true;
+            continue;
+        }
+        if (linea.empty()) continue;
+        if (linea == "[cambiados]") { seccion = 1; continue; }
+        if (linea == "[quitados]") { seccion = 2; continue; }
+        if (seccion == 1) {
+            PerfilTxt p = perfil_nuevo("");
+            std::string* campos[] = {&p.nombre, &p.cara, &p.barra, &p.despunte, &p.zona_muerta, &p.separacion, &p.margen};
+            size_t a = 0;
+            for (int i = 0; i < 7; i++) {
+                size_t b = linea.find('\t', a);
+                *campos[i] = linea.substr(a, b == std::string::npos ? std::string::npos : b - a);
+                if (b == std::string::npos) break;
+                a = b + 1;
+            }
+            c.cambiados.push_back(p);
+        } else if (seccion == 2) {
+            c.quitados.push_back(linea);
+        } else {
+            error = "linea fuera de [cambiados] y [quitados]";
             return false;
         }
     }

@@ -723,6 +723,67 @@ static void heuristicas_rapidas() {
     check(validar_plan(otra, pd, c) && t < 1.5, buf);
 }
 
+static void catalogo_compartido() {
+    std::puts("== catalogo compartido");
+    auto P = [](const std::string& n, const std::string& barra) {
+        PerfilTxt p = perfil_nuevo(n);
+        p.barra = barra;
+        return p;
+    };
+    auto nombres = [](const std::vector<PerfilTxt>& v) {
+        std::string r;
+        for (const auto& p : v) r += (r.empty() ? "" : ",") + p.nombre + "=" + p.barra;
+        return r;
+    };
+    std::vector<PerfilTxt> carpeta = {P("Cuadrado 40", "6000"), P("Rect 80x40", "6000"), P("Redondo 2", "6400")};
+
+    // otro equipo agrego "Angulo 30" mientras este cambio la barra del Cuadrado y quito el Redondo
+    std::vector<PerfilTxt> tabla = {P("cuadrado 40 ", "6500"), P("Rect 80x40", "6000"), P("", "")};
+    CambiosCatalogo c = cambios_de_tabla(tabla, {"Cuadrado 40"}, {"Redondo 2"});
+    std::vector<PerfilTxt> otra = carpeta;
+    otra.push_back(P("Angulo 30", "6000"));
+    std::string r = nombres(aplicar_cambios(otra, c));
+    check(r == "cuadrado 40 =6500,Rect 80x40=6000,Angulo 30=6000",
+          "solo se manda lo cambiado: no pisa el perfil que agrego otro equipo (" + r + ")");
+
+    // abrir un trabajo viejo (menos perfiles, valores viejos) sin tocar nada no cambia el catalogo
+    std::vector<PerfilTxt> viejo = {P("Cuadrado 40", "5800")};
+    c = cambios_de_tabla(viejo, {}, {});
+    check(c.vacio() && nombres(aplicar_cambios(carpeta, c)) == nombres(carpeta), "trabajo viejo sin editar: catalogo igual");
+
+    // quitar y volver a escribir el mismo perfil: no se borra
+    c = cambios_de_tabla({P("Redondo 2", "6000")}, {"Redondo 2"}, {"redondo 2"});
+    r = nombres(aplicar_cambios(carpeta, c));
+    check(r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6000", "quitado que volvio a la tabla: se actualiza, no se borra (" + r + ")");
+
+    // pendientes de dos sesiones sin red: lo mas nuevo gana
+    CambiosCatalogo a, b;
+    a.cambiados = {P("Cuadrado 40", "6100"), P("Nuevo 1", "6000")};
+    a.quitados = {"rect 80x40"};
+    b.cambiados = {P("CUADRADO 40", "6200"), P("Rect 80x40", "6300")};
+    b.quitados = {"nuevo 1"};
+    juntar_cambios(a, b);
+    r = nombres(aplicar_cambios(carpeta, a));
+    check(r == "CUADRADO 40=6200,Rect 80x40=6300,Redondo 2=6400",
+          "dos sesiones sin red juntadas: la segunda gana (" + r + ")");
+
+    // archivo de pendientes: ida y vuelta
+    CambiosCatalogo d;
+    std::string error;
+    check(de_texto_cambios(a_texto_cambios(a), d, error) && a_texto_cambios(d) == a_texto_cambios(a),
+          "archivo de cambios pendientes: guardar y leer deja lo mismo");
+    bool ajeno = !de_texto_cambios("NESTTUBO\t1\r\n", d, error);
+    check(ajeno, "archivo de cambios ajeno: rechazado (" + error + ")");
+
+    // primera vez con una carpeta que ya tiene catalogo: gana la carpeta, se agregan los del equipo
+    r = nombres(unir_catalogos(carpeta, {P("cuadrado 40", "7000"), P("Mio", "6000")}));
+    check(r == "Cuadrado 40=6000,Rect 80x40=6000,Redondo 2=6400,Mio=6000", "unir con la carpeta: gana la carpeta (" + r + ")");
+
+    // catalogo con repetidos o filas vacias: se limpia
+    r = nombres(aplicar_cambios({P("A", "1"), P("", ""), P("a", "2")}, CambiosCatalogo{}));
+    check(r == "A=1", "catalogo con repetidos: queda el primero (" + r + ")");
+}
+
 static void salidas() {
     std::puts("== salidas");
     check(a_winansi("Ángulo × · € →") == "\xC1ngulo \xD7 \xB7 \x80 ?", "WinAnsi: tildes, por, punto medio, euro; lo demas '?'");
@@ -857,6 +918,7 @@ int main(int argc, char** argv) {
     plan_por_perfil();
     lectura_numeros();
     trabajo_digitado();
+    catalogo_compartido();
     heuristicas_rapidas();
     salidas();
     determinismo_y_tiempo(ruta);
