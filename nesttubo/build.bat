@@ -6,7 +6,7 @@ where g++ >nul 2>nul
 if errorlevel 1 goto sin_gcc
 windres app.rc -O coff -o app.res
 if errorlevel 1 goto error
-g++ -std=c++17 -municode -O2 main.cpp trabajo.cpp nucleo.cpp salidas.cpp app.res -o ..\NestTubo.exe -mwindows -static -static-libgcc -static-libstdc++ -lcomctl32 -lshlwapi -lole32 -loleaut32 -luuid -lgdi32 -luser32 -lshell32 -ladvapi32 -lcomdlg32
+g++ -std=c++17 -municode -O2 main.cpp datos.cpp trabajo.cpp nucleo.cpp salidas.cpp app.res -o ..\NestTubo.exe -mwindows -static -static-libgcc -static-libstdc++ -lcomctl32 -lshlwapi -lole32 -loleaut32 -luuid -lgdi32 -luser32 -lshell32 -ladvapi32 -lcomdlg32
 if errorlevel 1 goto error
 del app.res
 echo Listo: NestTubo.exe quedo junto a este archivo.
