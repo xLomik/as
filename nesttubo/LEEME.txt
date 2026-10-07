@@ -1,6 +1,6 @@
 NestTubo - cuántas barras de tubo enviar a corte láser
 =======================================================
-Versión 0.2 (borradores de PDF, Excel y DXF, 2026-10-07)
+Versión 0.3 (carpeta de datos, también de red, 2026-10-07)
 
 Qué hace
 --------
@@ -13,17 +13,24 @@ Cómo se usa
 1. Doble clic en NestTubo.exe. Windows mostrará un aviso de SmartScreen porque
    el programa no está firmado: "Más información" y luego "Ejecutar de todas
    formas". Solo pasa la primera vez.
-2. Tabla "Perfiles": un perfil por fila. Al escribir el nombre se llenan los
-   valores iniciales (barra 6000, despunte 10, zona muerta 230, separación 3,
-   margen 0). Corrígelos si tu perfil o el proveedor usan otros.
+2. Tabla "Perfiles": un perfil por fila. Al escribir el nombre de un perfil
+   nuevo se llenan los valores iniciales (barra 6000, despunte 10, zona muerta
+   230, separación 3, margen 0). Corrígelos si tu perfil o el proveedor usan
+   otros. Si el nombre ya está en el catálogo, la fila trae sus valores.
    - Margen = barras extra que quieres enviar por seguridad, porque el
      proveedor nestea con su propio programa.
+   - Lo que escribes en esta tabla queda en el catálogo de perfiles al
+     momento, sin tener que guardar. Abrir un trabajo viejo no cambia el
+     catálogo: solo cambia lo que edites a mano.
+   - No se puede repetir un nombre en dos filas. "Quitar perfil" también lo
+     quita del catálogo.
 3. Tabla "Piezas del pedido": una pieza por fila.
    - Largo: de punta a punta, en mm. Acepta coma o punto y un decimal.
    - Ángulo 1 y 2: 0 = corte recto, 45 = inglete. En blanco cuenta como 0.
      No cambian el cálculo (cada pieza ocupa su largo de punta a punta);
      se usan para dibujar el DXF.
-   - Si escribes un perfil que no está en la tabla de perfiles, se agrega solo.
+   - Si escribes un perfil que no está en la tabla de perfiles, se trae del
+     catálogo; si tampoco está ahí, se agrega con los valores iniciales.
    - Al empezar una fila nueva se copia el perfil de la fila de arriba.
 4. "Calcular barras". Arriba a la derecha sale el resumen por perfil; al
    escoger un perfil, abajo a la derecha sale su plan por barra.
@@ -59,8 +66,24 @@ Qué significa el resultado
 Dónde quedan los datos
 ----------------------
 - "Guardar" deja el trabajo en un archivo .ntb (texto) en la carpeta que elijas.
-- La tabla de perfiles se recuerda entre trabajos en
-  %APPDATA%\NestTubo\perfiles.ntb. "Nuevo" borra las piezas y deja los perfiles.
+- "Carpeta de datos...": escoges una carpeta, que puede ser de red (por
+  ejemplo \\servidor\nesttubo o una letra como N:). Ahí queda el catálogo de perfiles
+  (perfiles.ntb) y desde ahí empiezan los diálogos de Abrir, Guardar y
+  Exportar. Si la carpeta ya tenía un catálogo, se junta con el de este
+  equipo; si algún perfil tiene valores distintos, NestTubo pregunta cuáles
+  usar, y antes guarda un respaldo.
+- El estado de la carpeta sale abajo a la derecha. En rojo: sin conexión o
+  con un error, y cuántas cosas esperan en este equipo.
+- Sin conexión todo sigue funcionando: lo que guardes en la red queda primero
+  en este equipo (%LOCALAPPDATA%\NestTubo\Sin conexión) y NestTubo lo copia
+  solo cuando la red responde, revisando cada 30 segundos mientras está
+  abierto. Abrir un trabajo que aún no se copió abre la versión de este
+  equipo, que es la más nueva.
+- Al cerrar, si algo está por copiarse, NestTubo espera hasta 3 segundos;
+  lo que falte se copia la próxima vez que lo abras.
+- "Nuevo" borra las piezas y pone los perfiles del catálogo.
+- Si no escoges carpeta de datos, el catálogo queda solo en este equipo
+  (%LOCALAPPDATA%\NestTubo\perfiles.ntb), como antes.
 
 El dibujo del DXF
 ----------------
@@ -69,11 +92,6 @@ borde de abajo mide el largo de punta a punta; arriba, cada extremo con ángulo
 se recorta cara x tan(ángulo), así que una pieza 45/45 queda como un trapecio,
 igual que una pieza de marco. Si el perfil no tiene cara, se dibuja de 50 mm y
 el título lo dice.
-
-Todavía no tiene
-----------------
-- Carpeta de datos fija (de red con respaldo local): por ahora cada trabajo se
-  guarda donde elijas.
 
 Compilar desde el código
 ------------------------

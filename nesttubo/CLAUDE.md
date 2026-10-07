@@ -17,7 +17,7 @@ Mantén este archivo al día: cuando un [S] se confirme, corrígelo aquí, y bor
 - El DXF es un dibujo, no un archivo de corte: "Solo se ve la cara mas ancha, es algo visual, nada mas".
 - Material: siempre barras completas. Sin inventario de sobrantes.
 - La máquina del proveedor es un láser de tubo.
-- Los datos se guardan en una carpeta que él elige. Se le propuso que pueda ser de red y que, si no responde, se guarde local y se sincronice después.
+- Los datos se guardan en una carpeta que él elige. Se le propuso que pueda ser de red y que, si no responde, se guarde local y se sincronice después. Hecho en 0.3 [M], suponiendo un solo equipo (dijo que no tiene otro): ver "Carpeta de datos".
 - Entrega: un `.exe` nativo en C++, compilado y probado en la nube. Él no instala nada.
 - Parámetros de máquina (2026-10-07): usar 6000 mm de barra, 230 de zona muerta, 3 de separación y 10 de despunte como valores iniciales, editables por perfil. No son del proveedor: él no los dio.
 - Largo de una pieza: de punta a punta, lo que ocupa en la barra (2026-10-07).
@@ -47,14 +47,15 @@ Los puntos 1 a 4 de la primera ronda, el trapecio del DXF y el formato del PDF y
 - Si la skill `apps-windows-cpp` está disponible, cárgala antes de escribir código: es de Camilo y trae las recetas de Win32, Excel a mano y carpetas de red. Lo imprescindible está repetido aquí.
 
 ## Construir y probar [M]
-Código en `src/`: `nucleo.cpp` (cálculo), `trabajo.cpp` (lectura de las tablas, archivo .ntb y textos del resultado; sin Win32), `salidas.cpp` (PDF, Excel y DXF escritos a mano; sin Win32), `main.cpp` (ventana), `pruebas.cpp`.
+Código en `src/`: `nucleo.cpp` (cálculo), `trabajo.cpp` (lectura de las tablas, archivo .ntb y textos del resultado; sin Win32), `salidas.cpp` (PDF, Excel y DXF escritos a mano; sin Win32), `datos.cpp` (config, archivos, catálogo e hilo de red; Win32 sin ventanas), `main.cpp` (ventana), `pruebas.cpp`, `pruebas_datos.cpp` (corre bajo wine).
 ```bash
 apt-get update && apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 wine64 xdotool xvfb imagemagick   # Ubuntu 24.04: GCC 13, wine 9.0
 ./compilar.sh pruebas   # nucleo, trabajo y salidas nativos con sanitizadores + oraculo: debe terminar en "FALLOS: 0" (unos 20 s)
 build/pruebas --salidas CARPETA ejemplos/ejemplo.ntb   # escribe el PDF, el Excel y los DXF sin pasar por la ventana
 ./compilar.sh exe       # build/NestTubo.exe con mingw; imprime las DLL (solo deben salir DLL de Windows)
+./compilar.sh datos     # carpeta de datos bajo wine con una unidad de red N: que se "desconecta" moviendo build/srv: "FALLOS: 0"
 # ejecutarlo de verdad y mirar la captura (wine no queda en el PATH)
-export DISPLAY=:99 WINEPREFIX=$HOME/.winep WINEDEBUG=-all
+export DISPLAY=:99 WINEPREFIX=$HOME/.winep WINEDEBUG=-all LANG=C.UTF-8   # sin UTF-8, wine no crea archivos con tildes ("no encontrado")
 pidof Xvfb >/dev/null || (setsid nohup Xvfb :99 -screen 0 1400x1000x24 >/dev/null 2>&1 &)
 [ -f $WINEPREFIX/system.reg ] || { WINEDLLOVERRIDES="mscoree,mshtml=" /usr/lib/wine/wine64 wineboot --init; /usr/lib/wine/wineserver -w; }
 (setsid nohup /usr/lib/wine/wine64 build/NestTubo.exe 'Z:\ruta\trabajo.ntb' >/dev/null 2>&1 &); sleep 8; import -window root captura.png   # el .ntb es opcional: lo abre al arrancar
@@ -106,6 +107,12 @@ Reglas para el código:
 - PDF: escrito a mano con Helvetica estándar y `WinAnsiEncoding` para las tildes. [M] Receta en `laboratorio/recetas/pdf_minimo.py`; la abren `pdftotext` y `pdftoppm`.
 - DXF para AutoCAD: ASCII R12 con solo `LINE` y `TEXT`, en mm, capas BARRA, PIEZAS, TEXTO y ZONA_MUERTA, sin tildes. [M] Receta en `laboratorio/recetas/dxf_minimo.py`; la lee `ezdxf`. Una barra de 6000 × 100 mm a escala real es una tira de 60:1; se le enseñó en el borrador 0.2 junto con el trapecio y lo aprobó.
 - Exportar (botón de la ventana) [M]: pide una carpeta y deja `<trabajo> - plan.pdf`, `<trabajo> - plan.xlsx` y la carpeta `<trabajo> - DXF`. Solo exporta un cálculo vigente; si ya hay una exportación del mismo trabajo, pregunta y borra los DXF viejos de esa carpeta para que no se mezclen. Bajo wine sale idéntico byte a byte a `pruebas --salidas`.
+
+## Carpeta de datos (0.3) [M]
+- Botón "Carpeta de datos..."; su estado va a la derecha de la barra de estado (rojo = sin conexión o error). config.ini sigue en %APPDATA%\NestTubo; la copia local del catálogo, sus cambios pendientes y la carpeta `Sin conexión\` van en %LOCALAPPDATA%\NestTubo.
+- Catálogo aparte de la tabla: cada celda de perfiles editada a mano se anota al confirmarla (solo ese campo). Abrir un trabajo viejo no cambia el catálogo; un perfil que falta se trae del catálogo; nombres repetidos se rechazan. Un perfiles.ntb ilegible nunca cuenta como vacío.
+- Trabajos de red: se guardan primero en `Sin conexión\<ruta del destino>` y un hilo los copia; nada de la ventana espera a la red salvo hasta 3 s al cerrar. Abrir usa la versión en espera si existe.
+- Diseño completo, pruebas y lo que wine no demuestra (cuelgue real de SMB, diálogos de Windows): `docs/carpeta-de-datos.md`. Bajo wine, una letra desconectada desaparece (GetDriveTypeW = sin raíz) en vez de seguir "de red": por eso una letra que no existe también se trata como de red.
 
 ## Antes de entregar algo
 1. Pruebas del núcleo en verde: los casos calculables a mano de `laboratorio/pruebas_propio.py` y la comparación con el oráculo.
