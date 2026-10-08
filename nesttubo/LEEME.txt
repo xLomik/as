@@ -86,6 +86,9 @@ Dónde quedan los datos
 - "perfiles.ntb" es el nombre del catálogo: no se puede usar para un trabajo.
 - Al cerrar, si algo está por copiarse, NestTubo espera hasta 3 segundos;
   lo que falte se copia la próxima vez que lo abras.
+- NestTubo abre una sola ventana. Si haces doble clic en otro trabajo
+  mientras ya está abierto, se abre en la misma ventana en vez de una
+  segunda.
 - "Nuevo" borra las piezas y pone los perfiles del catálogo.
 - Si no escoges carpeta de datos, el catálogo queda solo en este equipo
   (%LOCALAPPDATA%\NestTubo\perfiles.ntb), como antes.
