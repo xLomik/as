@@ -1,0 +1,28 @@
+{
+ "familia": "decimal",
+ "trabajos": 120,
+ "semilla": 2026,
+ "parametros": {
+  "L": 6000,
+  "despunte": 10,
+  "zona_muerta": 230,
+  "separacion": 3,
+  "escala": 10
+ },
+ "minimo_conocido": 120,
+ "simples": {
+  "0": 107,
+  "1": 13
+ },
+ "residual": {
+  "0": 120
+ },
+ "residual_certifica": 120,
+ "barras_minimas": 2035,
+ "barras_simples": 2048,
+ "barras_residual": 2035,
+ "piezas_min": 26,
+ "piezas_max": 121,
+ "barras_max": 41,
+ "segundos": 162.9
+}

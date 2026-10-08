@@ -1,0 +1,1 @@
+[Hard28] 28 instancias | residual: optimo en 5 (18%), +1 en 23, +2 o mas en 0, peor +1 | certifica el minimo en 0 | mejor de 3 simples: optimo en 5, peor +1 | 37.0 s por instancia

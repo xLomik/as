@@ -1,0 +1,1 @@
+casos_oraculo.txt: 1090 trabajos, minimo demostrado en 1090, 240 s

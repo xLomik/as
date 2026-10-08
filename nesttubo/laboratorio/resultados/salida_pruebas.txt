@@ -1,0 +1,14 @@
+OK  dos mitades exactas, sin separacion            esperado 1 | {'ffd': 1, 'bfd': 1, 'llenado': 1, 'optimo': 1, 'L1': 1, 'L2': 1}
+OK  dos mitades y 1 mm de mas                      esperado 2 | {'ffd': 2, 'bfd': 2, 'llenado': 2, 'optimo': 2, 'L1': 2, 'L2': 2}
+OK  separacion 3: 3000+2997+3 = 6000 justo         esperado 1 | {'ffd': 1, 'bfd': 1, 'llenado': 1, 'optimo': 1, 'L1': 1, 'L2': 1}
+OK  separacion 3: 3000+2998+3 = 6001 no cabe       esperado 2 | {'ffd': 2, 'bfd': 2, 'llenado': 2, 'optimo': 2, 'L1': 2, 'L2': 2}
+OK  zona muerta 230 + despunte 10: util 5760       esperado 1 | {'ffd': 1, 'bfd': 1, 'llenado': 1, 'optimo': 1, 'L1': 1, 'L2': 1}
+OK  lo mismo con 1 mm mas                          esperado 2 | {'ffd': 2, 'bfd': 2, 'llenado': 2, 'optimo': 2, 'L1': 2, 'L2': 2}
+OK  una pieza sola ocupa todo el util              esperado 1 | {'ffd': 1, 'bfd': 1, 'llenado': 1, 'optimo': 1, 'L1': 1, 'L2': 1}
+OK  seis de 1000 en 6000 sin separacion            esperado 1 | {'ffd': 1, 'bfd': 1, 'llenado': 1, 'optimo': 1, 'L1': 1, 'L2': 1}
+OK  seis de 1000 con separacion 3: 6015 > 6000     esperado 2 | {'ffd': 2, 'bfd': 2, 'llenado': 2, 'optimo': 2, 'L1': 2, 'L2': 2}
+OK  FFD falla aqui: optimo 2, FFD da 3             esperado 2 | {'ffd': 3, 'bfd': 3, 'llenado': 2, 'optimo': 2, 'L1': 2, 'L2': 2}
+OK  pieza mas larga que el util -> pieza de 5761 no cabe en el tramo util de 5760
+OK  400 instancias aleatorias: L1 <= L2 <= optimo en todas (fallas: 0)
+
+FALLOS: 0

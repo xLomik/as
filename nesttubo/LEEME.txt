@@ -1,0 +1,107 @@
+NestTubo - cuántas barras de tubo enviar a corte láser
+=======================================================
+Versión 0.3 (carpeta de datos, también de red, 2026-10-07)
+
+Qué hace
+--------
+Digitas las piezas de un pedido (perfil, nombre, largo, ángulos y cantidad) y
+el programa calcula cuántas barras de cada perfil hay que enviar al proveedor,
+con el plan de qué piezas salen de cada barra.
+
+Cómo se usa
+-----------
+1. Doble clic en NestTubo.exe. Windows mostrará un aviso de SmartScreen porque
+   el programa no está firmado: "Más información" y luego "Ejecutar de todas
+   formas". Solo pasa la primera vez.
+2. Tabla "Perfiles": un perfil por fila. Al escribir el nombre de un perfil
+   nuevo se llenan los valores iniciales (barra 6000, despunte 10, zona muerta
+   230, separación 3, margen 0). Corrígelos si tu perfil o el proveedor usan
+   otros. Si el nombre ya está en el catálogo, la fila trae sus valores.
+   - Margen = barras extra que quieres enviar por seguridad, porque el
+     proveedor nestea con su propio programa.
+   - Lo que escribes en esta tabla queda en el catálogo de perfiles al
+     momento, sin tener que guardar. Abrir un trabajo viejo no cambia el
+     catálogo: solo cambia lo que edites a mano.
+   - No se puede repetir un nombre en dos filas. "Quitar perfil" también lo
+     quita del catálogo.
+3. Tabla "Piezas del pedido": una pieza por fila.
+   - Largo: de punta a punta, en mm. Acepta coma o punto y un decimal.
+   - Ángulo 1 y 2: 0 = corte recto, 45 = inglete. En blanco cuenta como 0.
+     No cambian el cálculo (cada pieza ocupa su largo de punta a punta);
+     se usan para dibujar el DXF.
+   - Si escribes un perfil que no está en la tabla de perfiles, se trae del
+     catálogo; si tampoco está ahí, se agrega con los valores iniciales.
+   - Al empezar una fila nueva se copia el perfil de la fila de arriba.
+4. "Calcular barras". Arriba a la derecha sale el resumen por perfil; al
+   escoger un perfil, abajo a la derecha sale su plan por barra.
+5. "Exportar PDF, Excel y DXF...": escoges una carpeta y ahí quedan
+   - <trabajo> - plan.pdf: resumen en la primera página y, después, cada
+     perfil con el dibujo de cada barra y sus piezas.
+   - <trabajo> - plan.xlsx: hojas Resumen, Plan (una fila por pieza, con
+     perfil y barra en cada fila para poder filtrar) y Piezas.
+   - carpeta <trabajo> - DXF: un DXF por cada distribución distinta de barra
+     ("barras 1-3 x3" = tres barras iguales). Es un dibujo de la cara más
+     ancha, en mm, para ver en AutoCAD; no es un archivo de corte.
+   <trabajo> es el nombre del archivo .ntb, o "Trabajo" si no lo has
+   guardado. Si cambias datos después de calcular, hay que calcular de nuevo
+   antes de exportar.
+
+También puedes arrastrar un archivo .ntb sobre NestTubo.exe para abrirlo.
+
+Teclas: clic en una celda para editarla; Enter baja, Tab pasa a la derecha,
+Esc cancela lo escrito, Supr quita las filas seleccionadas.
+
+Qué significa el resultado
+--------------------------
+- "Barras a enviar" = mínimo calculado + margen.
+- "Mínimo demostrado: sí" quiere decir que no existe ninguna forma de usar
+  menos barras con esos datos.
+- "no: podrían sobrar hasta N" quiere decir que el programa no pudo demostrar
+  que es el mínimo; como mucho sobran N barras.
+- Una pieza más larga que el útil de la barra (barra - despunte - zona muerta)
+  no entra en el cálculo y aparece como "NO CABE" al final del plan.
+- Cada perfil tiene un tope de 20 segundos de cálculo; si se acaba, se muestra
+  lo mejor encontrado y se avisa. "Cancelar" hace lo mismo.
+
+Dónde quedan los datos
+----------------------
+- "Guardar" deja el trabajo en un archivo .ntb (texto) en la carpeta que elijas.
+- "Carpeta de datos...": escoges una carpeta, que puede ser de red (por
+  ejemplo \\servidor\nesttubo o una letra como N:). Ahí queda el catálogo de perfiles
+  (perfiles.ntb) y desde ahí empiezan los diálogos de Abrir, Guardar y
+  Exportar. Si la carpeta ya tenía un catálogo, se junta con el de este
+  equipo; si algún perfil tiene valores distintos, NestTubo pregunta cuáles
+  usar, y antes guarda un respaldo.
+- El estado de la carpeta sale abajo a la derecha. En rojo: sin conexión o
+  con un error, y cuántas cosas esperan en este equipo.
+- Sin conexión todo sigue funcionando: lo que guardes en la red queda primero
+  en este equipo (%LOCALAPPDATA%\NestTubo\Sin conexión) y NestTubo lo copia
+  solo cuando la red responde, revisando cada 30 segundos mientras está
+  abierto. Abrir un trabajo que aún no se copió abre la versión de este
+  equipo, que es la más nueva.
+- Si al volver la red ya hay en esa carpeta un archivo con el mismo nombre
+  que no es el que NestTubo conocía (otro trabajo, o alguien lo cambió), no
+  se reemplaza: lo tuyo queda al lado como "<nombre> (guardado sin
+  conexión).ntb" y NestTubo te avisa. Revisa los dos y borra el que sobre.
+- "perfiles.ntb" es el nombre del catálogo: no se puede usar para un trabajo.
+- Al cerrar, si algo está por copiarse, NestTubo espera hasta 3 segundos;
+  lo que falte se copia la próxima vez que lo abras.
+- NestTubo abre una sola ventana. Si haces doble clic en otro trabajo
+  mientras ya está abierto, se abre en la misma ventana en vez de una
+  segunda.
+- "Nuevo" borra las piezas y pone los perfiles del catálogo.
+- Si no escoges carpeta de datos, el catálogo queda solo en este equipo
+  (%LOCALAPPDATA%\NestTubo\perfiles.ntb), como antes.
+
+El dibujo del DXF
+----------------
+Cada pieza se ve por la cara más ancha del perfil (columna "Cara ancha"). El
+borde de abajo mide el largo de punta a punta; arriba, cada extremo con ángulo
+se recorta cara x tan(ángulo), así que una pieza 45/45 queda como un trapecio,
+igual que una pieza de marco. Si el perfil no tiene cara, se dibuja de 50 mm y
+el título lo dice.
+
+Compilar desde el código
+------------------------
+No hace falta. Si algún día quieres hacerlo en Windows: instala MinGW-w64,
+ponlo en el PATH y haz doble clic en build.bat.

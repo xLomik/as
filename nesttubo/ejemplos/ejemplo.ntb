@@ -1,0 +1,13 @@
+NESTTUBO	1
+[perfiles]
+Cuadrado 40x40x2	40	6000	10	230	3	0
+Ángulo 30x30x3	30	6400	10	230	3	1
+Rect 80x40x2	80	6000	10	230	3	0
+[piezas]
+Cuadrado 40x40x2	Larguero	1250	0	45	8
+Cuadrado 40x40x2	Travesaño	640,5	0	0	12
+Cuadrado 40x40x2	Pata	850	0	0	16
+Ángulo 30x30x3	Refuerzo	455	45	45	30
+Ángulo 30x30x3	Viga demasiado larga	6300	0	0	1
+Rect 80x40x2	Poste	2400	0	0	6
+Rect 80x40x2	Dintel	1830	0	30	4

@@ -1,0 +1,21 @@
+Falkenauer_u250_00.txt optimo 99 cota 99 metodo 99 {'arranques': 1, 'n_lp': 1, 'vueltas': 200, 'mochilas': 23, 'convergio': True}
+Falkenauer_u250_01.txt optimo 100 cota 100 metodo 100 {'arranques': 1, 'n_lp': 1, 'vueltas': 309, 'mochilas': 28, 'convergio': True}
+Falkenauer_u250_02.txt optimo 102 cota 102 metodo 102 {'arranques': 1, 'n_lp': 1, 'vueltas': 350, 'mochilas': 48, 'convergio': True}
+Falkenauer_u250_03.txt optimo 100 cota 100 metodo 100 {'arranques': 1, 'n_lp': 1, 'vueltas': 173, 'mochilas': 25, 'convergio': True}
+Falkenauer_u250_04.txt optimo 101 cota 101 metodo 101 {'arranques': 1, 'n_lp': 1, 'vueltas': 238, 'mochilas': 37, 'convergio': True}
+Falkenauer_u250_05.txt optimo 101 cota 101 metodo 101 {'arranques': 1, 'n_lp': 8, 'vueltas': 1860, 'mochilas': 67, 'convergio': True}
+Falkenauer_u250_06.txt optimo 102 cota 102 metodo 102 {'arranques': 1, 'n_lp': 1, 'vueltas': 287, 'mochilas': 36, 'convergio': True}
+Falkenauer_u250_07.txt optimo 103 cota 103 metodo 103 {'arranques': 1, 'n_lp': 1, 'vueltas': 301, 'mochilas': 42, 'convergio': True}
+Falkenauer_u250_08.txt optimo 105 cota 105 metodo 105 {'arranques': 1, 'n_lp': 1, 'vueltas': 450, 'mochilas': 52, 'convergio': True}
+Falkenauer_u250_09.txt optimo 101 cota 101 metodo 101 {'arranques': 1, 'n_lp': 1, 'vueltas': 339, 'mochilas': 35, 'convergio': True}
+Falkenauer_u250_10.txt optimo 105 cota 105 metodo 105 {'arranques': 1, 'n_lp': 1, 'vueltas': 382, 'mochilas': 52, 'convergio': True}
+Falkenauer_u250_11.txt optimo 101 cota 101 metodo 101 {'arranques': 1, 'n_lp': 1, 'vueltas': 343, 'mochilas': 61, 'convergio': True}
+Falkenauer_u250_12.txt optimo 105 cota 105 metodo 105 {'arranques': 1, 'n_lp': 7, 'vueltas': 685, 'mochilas': 71, 'convergio': True}
+Falkenauer_u250_13.txt optimo 103 cota 103 metodo 103 {'arranques': 1, 'n_lp': 1, 'vueltas': 384, 'mochilas': 47, 'convergio': True}
+Falkenauer_u250_14.txt optimo 100 cota 100 metodo 100 {'arranques': 1, 'n_lp': 1, 'vueltas': 379, 'mochilas': 39, 'convergio': True}
+Falkenauer_u250_15.txt optimo 105 cota 105 metodo 105 {'arranques': 1, 'n_lp': 1, 'vueltas': 437, 'mochilas': 54, 'convergio': True}
+Falkenauer_u250_16.txt optimo 97 cota 97 metodo 97 {'arranques': 1, 'n_lp': 1, 'vueltas': 297, 'mochilas': 26, 'convergio': True}
+Falkenauer_u250_17.txt optimo 100 cota 100 metodo 100 {'arranques': 1, 'n_lp': 1, 'vueltas': 259, 'mochilas': 28, 'convergio': True}
+Falkenauer_u250_18.txt optimo 100 cota 100 metodo 100 {'arranques': 1, 'n_lp': 1, 'vueltas': 315, 'mochilas': 41, 'convergio': True}
+Falkenauer_u250_19.txt optimo 102 cota 102 metodo 102 {'arranques': 1, 'n_lp': 1, 'vueltas': 295, 'mochilas': 31, 'convergio': True}
+[_u250] 20 instancias | metodo propio (5 arranques): optimo en 20 (100%), +1 en 0, +2 o mas en 0, peor +0 | certifica el minimo en 20 | la cota queda 1 por debajo del optimo en 0 | 0.1 s por instancia (max 0.2)

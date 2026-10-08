@@ -1,0 +1,33 @@
+{
+ "familia": "grande",
+ "trabajos": 60,
+ "semilla": 2026,
+ "parametros": {
+  "L": 6000,
+  "despunte": 10,
+  "zona_muerta": 230,
+  "separacion": 3,
+  "escala": 1
+ },
+ "minimo_conocido": 60,
+ "simples": {
+  "0": 13,
+  "1": 18,
+  "2": 18,
+  "3": 7,
+  "4": 1,
+  "5": 2,
+  "6": 1
+ },
+ "residual": {
+  "0": 60
+ },
+ "residual_certifica": 60,
+ "barras_minimas": 6662,
+ "barras_simples": 6757,
+ "barras_residual": 6662,
+ "piezas_min": 196,
+ "piezas_max": 647,
+ "barras_max": 267,
+ "segundos": 206.7
+}
