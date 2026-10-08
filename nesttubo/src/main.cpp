@@ -77,6 +77,7 @@ struct App {
     std::wstring error_catalogo;
     std::set<std::wstring> fallas_avisadas;       // trabajo en espera + codigo: un solo cuadro por cada uno
     bool aviso_sin_conexion = false;              // el cuadro de Guardar sin conexion sale una vez por sesion
+    bool perfiles_sin_anotar = false;             // un cambio de perfiles no quedo en el catalogo: no perderlo al cerrar
     bool examinando = false;
     // Lo que llega del hilo y abre un cuadro espera a que no haya una celda en
     // edicion ni otro cuadro abierto: el cuadro le quitaria el foco a la celda y
@@ -186,14 +187,18 @@ void etiqueta_datos() {
 
 // Unico camino para cambiar el catalogo desde la ventana: lo anota en disco al
 // momento. El cambio se calcula sobre la copia en disco, no sobre app.catalogo.
-void anotar(const datos::Cambio& cambio) {
+bool anotar(const datos::Cambio& cambio) {
     std::wstring error;
-    if (!datos::registrar(cambio, app.catalogo, error)) cuadro(error, MB_ICONERROR);
+    bool ok = datos::registrar(cambio, app.catalogo, error);
+    if (!error.empty()) cuadro(error, ok ? MB_ICONWARNING : MB_ICONERROR);
     if (!datos::leer_config(L"carpeta_datos").empty()) {
         app.catalogo_en_espera = true;
         datos::pedir_pasada(app.archivo);
     }
+    if (ok) app.perfiles_sin_anotar = false;
+    else app.perfiles_sin_anotar = true;   // quedo solo en la tabla del trabajo: guardar el trabajo para no perderlo
     etiqueta_datos();
+    return ok;
 }
 
 void titulo() {
@@ -313,7 +318,7 @@ bool editar_perfil(int f, int c, const std::string& nuevo) {
     }
     *campo_perfil(p, c) = nuevo;
     if (c == 0) {
-        app.catalogo = datos::copia_local(app.catalogo);   // otra ventana pudo agregarlo
+        app.catalogo = datos::catalogo_vigente(app.catalogo);   // otra ventana pudo agregarlo
         int ic = buscar_perfil(app.catalogo, nuevo);
         if (clave_perfil(viejo).empty() && ic >= 0) {
             p = app.catalogo[ic];
@@ -420,7 +425,7 @@ void mover_edicion(int mov) {
 // tampoco esta ahi, se agrega con los valores iniciales y se anota en el catalogo.
 void perfil_si_falta(const std::string& nombre) {
     if (clave_perfil(nombre).empty() || buscar_perfil(app.trabajo.perfiles, nombre) >= 0) return;
-    app.catalogo = datos::copia_local(app.catalogo);   // otra ventana pudo agregarlo
+    app.catalogo = datos::catalogo_vigente(app.catalogo);   // otra ventana pudo agregarlo
     int ic = buscar_perfil(app.catalogo, nombre);
     PerfilTxt p = ic >= 0 ? app.catalogo[ic] : perfil_nuevo(nombre);
     if (!app.trabajo.perfiles.empty() && fila_vacia(app.trabajo.perfiles.back())) {
@@ -435,9 +440,9 @@ void perfil_si_falta(const std::string& nombre) {
         estado(L"Perfil \"" + W(p.nombre) + L"\" traído del catálogo.");
         return;
     }
-    anotar([&](const std::vector<PerfilTxt>& actual) { return cambio_por_nombre(actual, p, "", false); });
-    estado(L"Perfil \"" + W(nombre) + L"\" agregado con los valores iniciales (barra 6000, despunte 10, zona muerta 230, "
-                                      L"separación 3). Corrígelos en la tabla de perfiles si hace falta.");
+    if (anotar([&](const std::vector<PerfilTxt>& actual) { return cambio_por_nombre(actual, p, "", false); }))
+        estado(L"Perfil \"" + W(nombre) + L"\" agregado con los valores iniciales (barra 6000, despunte 10, zona muerta 230, "
+                                          L"separación 3). Corrígelos en la tabla de perfiles si hace falta.");
 }
 
 // ---------------------------------------------------------------------------
@@ -566,7 +571,8 @@ void fin_calculo(Resultado* res) {
 // Dialogo de Abrir o Guardar. Si la carpeta es de red y no responde, empieza en
 // su copia de este equipo (lo que se guarde ahi se copia cuando vuelva la red).
 // Devuelve siempre el destino real, nunca una ruta de la carpeta de espera.
-bool dialogo_archivo(bool guardar, std::wstring& ruta) {
+bool dialogo_archivo(bool guardar, std::wstring& ruta, bool* desde_espera = nullptr) {
+    if (desde_espera) *desde_espera = false;
     std::wstring inicial = datos::leer_config(L"carpeta");
     if (inicial.empty()) inicial = datos::leer_config(L"carpeta_datos");
     std::wstring sugerido = ruta, sin_red;   // sin_red: el dialogo empieza en la copia de esta carpeta de red
@@ -602,11 +608,20 @@ bool dialogo_archivo(bool guardar, std::wstring& ruta) {
         if (!ok) return false;
         ruta = buf;
         std::wstring destino;
-        if (datos::destino_en_espera(ruta, destino) && !datos::raiz(destino).empty()) ruta = destino;
-        else if (guardar && datos::dentro_de_espera(ruta)) {
+        if (datos::destino_en_espera(ruta, destino) && !datos::raiz(destino).empty()) {
+            ruta = destino;
+            if (desde_espera) *desde_espera = true;   // el dialogo estaba en la copia de este equipo, no en la carpeta real
+        } else if (guardar && datos::dentro_de_espera(ruta)) {
             // fuera de las carpetas que repiten una de red no hay a donde copiarlo
             cuadro(L"Esa carpeta no corresponde a ninguna carpeta de red: lo que se guarde ahí no se copia a ningún lado.\n\n"
                    L"Elige la carpeta del trabajo dentro de la que abrió el diálogo, o una carpeta de este equipo.",
+                   MB_ICONWARNING);
+            sugerido = ruta;
+            continue;
+        }
+        if (guardar && datos::es_remota(ruta) && !datos::destino_valido(ruta)) {
+            cuadro(L"Esa carpeta de red no sirve para guardar un trabajo: falta la carpeta compartida.\n\n"
+                   L"Elige una carpeta dentro de un recurso compartido (\\\\servidor\\recurso\\...) o una carpeta de este equipo.",
                    MB_ICONWARNING);
             sugerido = ruta;
             continue;
@@ -618,25 +633,31 @@ bool dialogo_archivo(bool guardar, std::wstring& ruta) {
 
 bool guardar(bool como) {
     cerrar_edicion(false);
+    std::wstring abierto = app.archivo;   // antes del dialogo: la pasada puede cambiar app.archivo durante el
     std::wstring ruta = app.archivo;
-    datos::Sello base = app.sello;
+    bool desde_espera = false;
     if (como || ruta.empty()) {
-        if (!dialogo_archivo(true, ruta)) return false;
-        if (datos::clave_ruta(ruta) != datos::clave_ruta(app.archivo)) {
-            // con conexion el dialogo ya pregunto si se reemplaza lo que hubiera; sin conexion no se sabe que hay
-            base = fuera_de_linea(ruta) ? datos::sello_nuevo() : datos::sello_de(ruta);
-        }
+        if (!dialogo_archivo(true, ruta, &desde_espera)) return false;
     }
+    bool es_el_abierto = !ruta.empty() && datos::clave_ruta(ruta) == datos::clave_ruta(abierto);
+    // la base se decide despues del dialogo. Si el dialogo mostro la copia de este
+    // equipo (sin conexion), no se vio la carpeta real: tratar como nuevo para no
+    // pisar lo que haya alla. Si es el archivo abierto, lo ultimo que sabe la ventana.
+    datos::Sello base;
+    if (es_el_abierto) base = app.sello;
+    else if (desde_espera || fuera_de_linea(ruta)) base = datos::sello_nuevo();
+    else base = datos::sello_de(ruta);
     bool en_espera = false;
     std::wstring error;
     datos::Sello sello;
-    if (!datos::guardar_trabajo(ruta, a_texto(app.trabajo), base, en_espera, sello, error)) {
+    if (!datos::guardar_trabajo(ruta, a_texto(app.trabajo), base, es_el_abierto, en_espera, sello, error)) {
         cuadro(error, MB_ICONERROR);
         return false;
     }
     app.archivo = ruta;
     app.sello = sello;
     app.modificado = false;
+    app.perfiles_sin_anotar = false;
     titulo();
     if (!en_espera) {
         estado(L"Guardado en " + ruta);
@@ -669,9 +690,9 @@ bool guardar(bool como) {
 bool puede_descartar() {
     cerrar_edicion(false);
     if (!app.modificado) return true;
-    // sin archivo ni piezas no hay nada que perder: lo editado en perfiles ya esta en el catalogo
+    // sin archivo ni piezas no hay nada que perder, salvo un cambio de perfiles que no quedo en el catalogo
     bool piezas = std::any_of(app.trabajo.piezas.begin(), app.trabajo.piezas.end(), [](const PiezaTxt& p) { return !fila_vacia(p); });
-    if (app.archivo.empty() && !piezas) return true;
+    if (app.archivo.empty() && !piezas && !app.perfiles_sin_anotar) return true;
     int r = cuadro(L"¿Guardar los cambios del trabajo actual?", MB_YESNOCANCEL | MB_ICONQUESTION);
     if (r == IDCANCEL) return false;
     if (r == IDYES) return guardar(false);
@@ -831,12 +852,13 @@ void limpiar_resultado() {
 void nuevo() {
     if (!puede_descartar()) return;
     app.trabajo.piezas.clear();
-    app.catalogo = datos::copia_local(app.catalogo);
+    app.catalogo = datos::catalogo_vigente(app.catalogo);
     app.trabajo.perfiles = app.catalogo;
     asegurar_fila_vacia();
     app.archivo.clear();
     app.sello = datos::sello_nuevo();
     app.modificado = false;
+    app.perfiles_sin_anotar = false;
     llenar_tabla(app.perfiles);
     llenar_tabla(app.piezas);
     limpiar_resultado();
@@ -867,7 +889,9 @@ void abrir(std::wstring ruta = L"") {
     asegurar_fila_vacia();
     app.archivo = destino;
     app.sello = en_espera ? base : datos::sello_de(leer);
+    if (!en_espera && app.sello.existe) datos::recordar(destino, app.sello);
     app.modificado = false;
+    app.perfiles_sin_anotar = false;
     llenar_tabla(app.perfiles);
     llenar_tabla(app.piezas);
     limpiar_resultado();
@@ -903,8 +927,8 @@ void quitar_filas(HWND lv) {
     CambiosCatalogo quitados;   // solo si ninguna fila que queda tiene ese perfil
     for (const auto& n : nombres)
         if (!clave_perfil(n).empty() && buscar_perfil(app.trabajo.perfiles, n) < 0) quitados.quitados.push_back(clave_perfil(n));
-    if (!quitados.vacio()) anotar([&](const std::vector<PerfilTxt>&) { return quitados; });
-    if (!quitados.vacio()) estado(quitados.quitados.size() == 1 ? L"Perfil quitado del catálogo." : L"Perfiles quitados del catálogo.");
+    if (!quitados.vacio() && anotar([&](const std::vector<PerfilTxt>&) { return quitados; }))
+        estado(quitados.quitados.size() == 1 ? L"Perfil quitado del catálogo." : L"Perfiles quitados del catálogo.");
     asegurar_fila_vacia();
     llenar_tabla(lv);
     datos_cambiaron();
@@ -942,7 +966,7 @@ void carpeta_examinada(const datos::InformeExaminar& inf) {
     }
     bool habia = inf.lectura == Lectura::ok, gana_carpeta = true;
     if (habia) {
-        std::vector<std::string> d = perfiles_distintos(inf.catalogo, datos::copia_local(app.catalogo));
+        std::vector<std::string> d = perfiles_distintos(inf.catalogo, datos::catalogo_vigente(app.catalogo));
         if (!d.empty()) {
             std::wstring lista;
             for (size_t i = 0; i < d.size() && i < 15; i++) lista += L"   " + W(d[i]) + L"\n";
@@ -995,17 +1019,18 @@ void atender_pendientes() {
 
 // Lo que informa el hilo despues de cada pasada. No abre cuadros: los deja en app.avisos.
 void pasada_hecha(const datos::InformePasada& inf) {
-    for (const auto& r : inf.raices) app.conexion[datos::clave_ruta(r.first)] = r.second;
-    app.trabajos_en_espera = inf.trabajos_en_espera;
-    app.catalogo_en_espera = inf.catalogo_en_espera;
     if (inf.saltada) {
+        // otro proceso hizo la pasada: su informe no trae estos datos. Se deja el ultimo completo.
         etiqueta_datos();
         return;
     }
+    for (const auto& r : inf.raices) app.conexion[datos::clave_ruta(r.first)] = r.second;
+    app.trabajos_en_espera = inf.trabajos_en_espera;
+    app.catalogo_en_espera = inf.catalogo_en_espera;
     app.esperando_red = inf.esperando_red;
     // la copia local se puso al dia: se lee ahora (la del informe pudo quedar vieja frente a una edicion reciente)
     if (inf.hay_catalogo && datos::clave_ruta(inf.carpeta_datos) == datos::clave_ruta(datos::leer_config(L"carpeta_datos")))
-        app.catalogo = datos::copia_local(app.catalogo);   // la tabla no se toca: es la del trabajo abierto
+        app.catalogo = datos::catalogo_vigente(app.catalogo);   // la tabla no se toca: es la del trabajo abierto
     app.error_catalogo = inf.error_catalogo;
     app.fallas = (int)inf.fallas.size();
     for (const auto& c : inf.copiados) {
@@ -1336,6 +1361,16 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_CTLCOLORSTATIC:
         SetBkMode((HDC)w, TRANSPARENT);
         return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_COPYDATA: {
+        auto* cds = (COPYDATASTRUCT*)l;
+        if (cds && cds->lpData && cds->cbData >= sizeof(wchar_t)) {
+            std::wstring ruta((const wchar_t*)cds->lpData, cds->cbData / sizeof(wchar_t));
+            while (!ruta.empty() && ruta.back() == L'\0') ruta.pop_back();
+            SetForegroundWindow(h);
+            if (!ruta.empty()) abrir(ruta);
+        }
+        return TRUE;
+    }
     case WM_CLOSE:
         if (app.calculando) {
             app.cancelar = true;
@@ -1347,6 +1382,19 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             // lo que falte ya esta en este equipo; se espera un poco por si alcanza a copiarse
             estado(L"Copiando a la carpeta de datos antes de cerrar...");
             datos::esperar_pasada(datos::pedir_pasada(app.archivo), 3000);
+        }
+        // mostrar los avisos de la ultima pasada (una copia que quedo "(guardado sin conexión)") antes de cerrar
+        {
+            MSG pm;
+            while (PeekMessageW(&pm, h, datos::WM_APP_RED, datos::WM_APP_RED, PM_REMOVE)) {
+                if (pm.wParam == datos::INFORME_PASADA) {
+                    std::unique_ptr<datos::InformePasada> inf((datos::InformePasada*)pm.lParam);
+                    pasada_hecha(*inf);
+                } else if (pm.wParam == datos::INFORME_EXAMINAR) {
+                    app.examen.reset((datos::InformeExaminar*)pm.lParam);
+                }
+            }
+            atender_pendientes();
         }
         DestroyWindow(h);
         return 0;
@@ -1361,6 +1409,26 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     app.inst = inst;
+    // Una sola ventana: escribe archivos compartidos (catalogo, trabajos de red) y
+    // dos a la vez se pisarian. Si ya hay una, se le pasa el archivo y se sale.
+    HANDLE unica = CreateMutexW(nullptr, TRUE, L"NestTubo-ventana-unica");
+    if (unica && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND otra = FindWindowW(L"NestTuboVentana", nullptr);
+        if (otra) {
+            if (IsIconic(otra)) ShowWindow(otra, SW_RESTORE);
+            SetForegroundWindow(otra);
+            int ac = 0;
+            LPWSTR* av = CommandLineToArgvW(GetCommandLineW(), &ac);
+            if (av && ac > 1) {
+                COPYDATASTRUCT cds{};
+                cds.cbData = (DWORD)((wcslen(av[1]) + 1) * sizeof(wchar_t));
+                cds.lpData = av[1];
+                SendMessageW(otra, WM_COPYDATA, 0, (LPARAM)&cds);
+            }
+            if (av) LocalFree(av);
+        }
+        return 0;
+    }
     OleInitialize(nullptr);   // el dialogo de carpeta nuevo lo necesita
     INITCOMMONCONTROLSEX ic{sizeof(ic), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES};
     InitCommonControlsEx(&ic);
