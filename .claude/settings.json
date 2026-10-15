@@ -24,5 +24,44 @@
         ]
       }
     ]
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-dev": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers"
+      }
+    },
+    "anthropic-agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/skills"
+      }
+    },
+    "swiftui-expert-skill": {
+      "source": {
+        "source": "github",
+        "repo": "AvdLee/SwiftUI-Agent-Skill"
+      }
+    },
+    "swiftui-agent-skill": {
+      "source": {
+        "source": "github",
+        "repo": "twostraws/SwiftUI-Agent-Skill"
+      }
+    },
+    "swift-concurrency-agent-skill": {
+      "source": {
+        "source": "github",
+        "repo": "AvdLee/Swift-Concurrency-Agent-Skill"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-dev": true,
+    "example-skills@anthropic-agent-skills": true,
+    "swiftui-expert@swiftui-expert-skill": true,
+    "swiftui-pro@swiftui-agent-skill": true,
+    "swift-concurrency@swift-concurrency-agent-skill": true
   }
 }
