@@ -1,5 +1,6 @@
 //! `lince`: busca archivos por nombre al instante leyendo la MFT de NTFS.
 
+mod mem;
 mod output;
 mod sources;
 
@@ -178,6 +179,9 @@ fn run(args: &Args) -> Result<usize, String> {
             seconds(searched),
             seconds(t.elapsed() - searched)
         );
+        if let Some(peak) = mem::peak_memory_bytes() {
+            eprintln!("memoria máxima: {} MB", thousands(peak >> 20));
+        }
     }
 
     if args.count {
