@@ -104,19 +104,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// Une los argumentos respetando los que traían espacios (frases).
+/// Une los argumentos en una sola consulta. Para buscar una frase exacta las
+/// comillas deben llegar al programa: `lince '"foto vac"'` en PowerShell.
 fn query_text(parts: &[String]) -> String {
-    parts
-        .iter()
-        .map(|p| {
-            if p.contains(char::is_whitespace) && !p.contains('"') {
-                format!("\"{p}\"")
-            } else {
-                p.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    parts.join(" ")
 }
 
 fn sources(args: &Args) -> Result<Vec<Source>, String> {
@@ -247,9 +238,11 @@ fn sort_hits(indexes: &[Index], hits: &mut Vec<Hit>, sort: Sort, desc: bool) {
 mod tests {
     use super::*;
 
+    /// Un argumento con espacios (`lince "*.txt size:>4"`, necesario en cmd
+    /// por el `>`) es una consulta completa, no una frase.
     #[test]
-    fn query_keeps_phrases() {
-        let parts = vec!["foto vac".to_string(), "ext:jpg".to_string()];
-        assert_eq!(query_text(&parts), "\"foto vac\" ext:jpg");
+    fn arguments_are_joined_as_one_query() {
+        let parts = vec!["*.txt size:>4".to_string(), "ext:txt".to_string()];
+        assert_eq!(query_text(&parts), "*.txt size:>4 ext:txt");
     }
 }
