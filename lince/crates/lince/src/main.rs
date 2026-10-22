@@ -2,19 +2,18 @@
 
 mod mem;
 mod output;
-mod sources;
 
-use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::{Parser, ValueEnum};
-use lince_core::{parse_query, search, sort_results, Index, SortKey};
+use lince_core::{
+    parse_query, search, seconds, sort_hits, thousands, write_csv, Hit, SortKey, Source,
+};
 use rayon::prelude::*;
 
-use output::{report_build, seconds, thousands, Hit};
-use sources::Source;
+use output::report_build;
 
 const SYNTAX: &str = "\
 Sintaxis de búsqueda:
@@ -156,8 +155,15 @@ fn run(args: &Args) -> Result<usize, String> {
         .flat_map(|(s, ix)| search(ix, &query).into_iter().map(move |i| (s, i)))
         .collect();
     let searched = t.elapsed();
-    if !args.count {
-        sort_hits(&indexes, &mut hits, args.sort, args.desc);
+    let key = match args.sort {
+        Sort::None => None,
+        Sort::Name => Some(SortKey::Name),
+        Sort::Path => Some(SortKey::Path),
+        Sort::Size => Some(SortKey::Size),
+        Sort::Date => Some(SortKey::Modified),
+    };
+    if let (Some(key), false) = (key, args.count) {
+        sort_hits(&indexes, &mut hits, key, args.desc);
     }
     let total = hits.len();
     if let Some(n) = args.limit {
@@ -178,7 +184,7 @@ fn run(args: &Args) -> Result<usize, String> {
     if args.count {
         println!("{}", hits.len());
     } else if let Some(path) = &args.csv {
-        output::write_csv(path, &indexes, &hits).map_err(|e| format!("{}: {e}", path.display()))?;
+        write_csv(path, &indexes, &hits).map_err(|e| format!("{}: {e}", path.display()))?;
     } else if let Err(e) = output::print_paths(&indexes, &hits) {
         // Salida cerrada (p. ej. `| head`): no es un error del programa.
         if e.kind() != std::io::ErrorKind::BrokenPipe {
@@ -186,52 +192,6 @@ fn run(args: &Args) -> Result<usize, String> {
         }
     }
     Ok(hits.len())
-}
-
-fn sort_hits(indexes: &[Index], hits: &mut Vec<Hit>, sort: Sort, desc: bool) {
-    let key = match sort {
-        Sort::None => return,
-        Sort::Name => SortKey::Name,
-        Sort::Path => SortKey::Path,
-        Sort::Size => SortKey::Size,
-        Sort::Date => SortKey::Modified,
-    };
-    if indexes.len() == 1 {
-        let mut ids: Vec<u32> = hits.iter().map(|&(_, i)| i).collect();
-        sort_results(&indexes[0], &mut ids, key, desc);
-        *hits = ids.into_iter().map(|i| (0, i)).collect();
-        return;
-    }
-    if let SortKey::Path = key {
-        // Por ruta: cada fuente por separado y las fuentes por su etiqueta.
-        let mut order: Vec<usize> = (0..indexes.len()).collect();
-        order.sort_by(|&a, &b| indexes[a].label().cmp(indexes[b].label()));
-        if desc {
-            order.reverse();
-        }
-        let mut out = Vec::with_capacity(hits.len());
-        for s in order {
-            let mut ids: Vec<u32> = hits.iter().filter(|h| h.0 == s).map(|h| h.1).collect();
-            sort_results(&indexes[s], &mut ids, key, desc);
-            out.extend(ids.into_iter().map(|i| (s, i)));
-        }
-        *hits = out;
-        return;
-    }
-    let name = |&(s, i): &Hit| indexes[s].folded_name(i);
-    let cmp = |a: &Hit, b: &Hit| -> Ordering {
-        let (ea, eb) = (indexes[a.0].entry(a.1), indexes[b.0].entry(b.1));
-        let primary = match key {
-            SortKey::Size => ea.size.cmp(&eb.size),
-            SortKey::Modified => ea.modified.cmp(&eb.modified),
-            _ => Ordering::Equal,
-        };
-        primary.then_with(|| name(a).cmp(name(b))).then(a.cmp(b))
-    };
-    hits.par_sort_by(cmp);
-    if desc {
-        hits.reverse();
-    }
 }
 
 #[cfg(test)]

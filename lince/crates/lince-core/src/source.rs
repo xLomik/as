@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use lince_core::{index_from_mft, walk, DriveKind, Index};
+use crate::{index_from_mft, walk, DriveKind, Index};
 use lince_ntfs::{read_layout, read_records, NtfsError, ReadAt, ReadOptions};
 
+/// De dónde sale un índice.
 pub enum Source {
     /// Volumen de Windows (`C:`).
-    #[cfg_attr(not(windows), allow(dead_code))]
     Volume(String),
     Image(PathBuf),
     Path(PathBuf),
@@ -65,9 +65,9 @@ impl Source {
             }
             Source::Path(path) => from_walk(&label, path.clone(), start),
             #[cfg(windows)]
-            Source::Volume(_) => match lince_core::Volume::open(&label) {
+            Source::Volume(_) => match crate::Volume::open(&label) {
                 Ok(vol) => {
-                    let kind = lince_core::drive_kind(&label);
+                    let kind = crate::drive_kind(&label);
                     match from_mft(&label, &vol, Some(kind), start) {
                         Err(NtfsError::NotNtfs) => {
                             warn(format!("{label} no es NTFS; se recorren sus carpetas."));

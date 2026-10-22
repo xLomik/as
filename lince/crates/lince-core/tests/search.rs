@@ -175,3 +175,39 @@ fn parallel_search_matches_naive_filter() {
         assert_eq!(got, want, "{needle}");
     }
 }
+
+/// Resultados de varios volúmenes ordenados como una sola lista.
+#[test]
+fn sort_hits_across_sources() {
+    use lince_core::{sort_hits, Hit};
+    let make = |label: &str, files: &[(&str, u64)]| {
+        let mut b = IndexBuilder::new(label, '\\');
+        let root = b.push("", NO_PARENT, FLAG_DIR | FLAG_ROOT, 0, 0, 0);
+        for &(name, size) in files {
+            b.push(name, root, 0, size, 0, 0);
+        }
+        b.finish()
+    };
+    let ixs = vec![
+        make("D:", &[("b.txt", 5), ("d.txt", 1)]),
+        make("C:", &[("a.txt", 3), ("c.txt", 9)]),
+    ];
+    let paths =
+        |hits: &[Hit]| -> Vec<String> { hits.iter().map(|&(s, i)| ixs[s].path(i)).collect() };
+    let mut hits: Vec<Hit> = vec![(0, 1), (0, 2), (1, 1), (1, 2)];
+    sort_hits(&ixs, &mut hits, SortKey::Name, false);
+    assert_eq!(
+        paths(&hits),
+        ["C:\\a.txt", "D:\\b.txt", "C:\\c.txt", "D:\\d.txt"]
+    );
+    sort_hits(&ixs, &mut hits, SortKey::Size, true);
+    assert_eq!(
+        paths(&hits),
+        ["C:\\c.txt", "D:\\b.txt", "C:\\a.txt", "D:\\d.txt"]
+    );
+    sort_hits(&ixs, &mut hits, SortKey::Path, false);
+    assert_eq!(
+        paths(&hits),
+        ["C:\\a.txt", "C:\\c.txt", "D:\\b.txt", "D:\\d.txt"]
+    );
+}

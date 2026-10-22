@@ -340,7 +340,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "lince-core",
- "lince-ntfs",
  "lince-testdata",
  "rayon",
  "tempfile",

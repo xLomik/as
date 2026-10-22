@@ -1,10 +1,15 @@
 //! Búsqueda paralela sobre el índice.
 
+use std::cmp::Ordering;
+
 use memchr::memmem;
 use rayon::prelude::*;
 
 use crate::query::{Kind, Query};
 use crate::{fold_into, Index, FLAG_DIR, FLAG_ROOT};
+
+/// Un resultado: (posición de la fuente, entrada de su índice).
+pub type Hit = (usize, u32);
 
 /// Trozos por hilo: suficientes para repartir bien la carga.
 const PARTS_PER_THREAD: usize = 8;
@@ -161,5 +166,46 @@ pub fn sort_results(ix: &Index, res: &mut [u32], key: SortKey, desc: bool) {
     }
     if desc {
         res.reverse();
+    }
+}
+
+/// Ordena resultados de varias fuentes como una sola lista. Por ruta, cada
+/// fuente va entera y en el orden de su etiqueta (`C:` antes que `D:`).
+pub fn sort_hits(indexes: &[Index], hits: &mut Vec<Hit>, key: SortKey, desc: bool) {
+    if indexes.len() == 1 {
+        let mut ids: Vec<u32> = hits.iter().map(|&(_, i)| i).collect();
+        sort_results(&indexes[0], &mut ids, key, desc);
+        *hits = ids.into_iter().map(|i| (0, i)).collect();
+        return;
+    }
+    if let SortKey::Path = key {
+        // Por ruta: cada fuente por separado y las fuentes por su etiqueta.
+        let mut order: Vec<usize> = (0..indexes.len()).collect();
+        order.sort_by(|&a, &b| indexes[a].label().cmp(indexes[b].label()));
+        if desc {
+            order.reverse();
+        }
+        let mut out = Vec::with_capacity(hits.len());
+        for s in order {
+            let mut ids: Vec<u32> = hits.iter().filter(|h| h.0 == s).map(|h| h.1).collect();
+            sort_results(&indexes[s], &mut ids, key, desc);
+            out.extend(ids.into_iter().map(|i| (s, i)));
+        }
+        *hits = out;
+        return;
+    }
+    let name = |&(s, i): &Hit| indexes[s].folded_name(i);
+    let cmp = |a: &Hit, b: &Hit| -> Ordering {
+        let (ea, eb) = (indexes[a.0].entry(a.1), indexes[b.0].entry(b.1));
+        let primary = match key {
+            SortKey::Size => ea.size.cmp(&eb.size),
+            SortKey::Modified => ea.modified.cmp(&eb.modified),
+            _ => Ordering::Equal,
+        };
+        primary.then_with(|| name(a).cmp(name(b))).then(a.cmp(b))
+    };
+    hits.par_sort_by(cmp);
+    if desc {
+        hits.reverse();
     }
 }
