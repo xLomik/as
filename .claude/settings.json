@@ -42,5 +42,8 @@
         "repo": "mksglu/context-mode"
       }
     }
+  },
+  "env": {
+    "CLAUDE_MEM_TELEMETRY": "0"
   }
 }
