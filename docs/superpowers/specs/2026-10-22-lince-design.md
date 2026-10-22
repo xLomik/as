@@ -44,3 +44,30 @@ El usuario lo usará para las tres cosas:
   recorrido de carpetas.
 - `cargo test`, `cargo clippy -- -D warnings` y `cargo fmt --check` limpios en
   Linux y Windows.
+
+## Resultado de la Fase 1 (medido)
+
+Runner `windows-latest` de GitHub (VM de Azure, 4 vCPU, disco virtual), como
+administrador:
+
+| Medida | Valor |
+|---|---|
+| Registros de la MFT de `C:` | 1 362 328 (1,33 GB) |
+| Entradas en el índice | 1 411 362 |
+| Índice en frío | 12,6 s (106 MB/s, límite del disco virtual) |
+| Índice con la MFT en caché del sistema | 3,8 s |
+| Consulta `*` (recorre todo el índice) | 38 ms |
+| Consulta dirigida (`cmd.exe`) | 1 ms |
+| Prueba de exactitud | 3 archivos nuevos (hard link y Unicode) con ruta y tamaño exactos |
+
+Linux, imagen NTFS de 300 000 archivos (en caché): índice en 0,25 s
+(≈1 200 MB/s), 166 MB de memoria máxima, consulta completa en 11 ms.
+
+Pendiente de rendimiento detectado (para la fase de tiempo real):
+
+- En la VM el tipo de disco sale «desconocido» (4 lecturas simultáneas);
+  medir si 8–16 rinde más en discos virtuales.
+- La lectura en Windows copia cada trozo desde un buffer alineado nuevo:
+  reutilizar un buffer alineado por hilo y leer directo en él.
+- El parseo crea un `String` y un `Vec` por registro: escribir los nombres
+  directamente a un buffer por trozo bajaría tiempo y memoria pico.
