@@ -281,8 +281,10 @@ fn parse_file_name(v: &[u8]) -> Result<Option<FileName>, NtfsError> {
     }
     let raw = v.get(0x42..0x42 + 2 * units).ok_or(BAD)?;
     let utf16: Vec<u16> = raw
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_le_bytes(c))
         .collect();
     let (parent_frs, parent_seq) = split_ref(u64_at(v, 0).ok_or(BAD)?);
     Ok(Some(FileName {

@@ -1,0 +1,4 @@
+# Versión fija: un lint nuevo de clippy en stable no debe romper el CI.
+[toolchain]
+channel = "1.99"
+components = ["rustfmt", "clippy"]
