@@ -1,0 +1,13 @@
+[package]
+name = "lince-core"
+description = "Indice en memoria, consultas y busqueda de Lince"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lince-ntfs = { path = "../lince-ntfs" }
+rayon = "1.12"
+
+[dev-dependencies]
+lince-testdata = { path = "../lince-testdata" }

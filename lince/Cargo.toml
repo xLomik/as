@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lince-ntfs", "crates/lince-testdata"]
+members = ["crates/lince-ntfs", "crates/lince-core", "crates/lince-testdata"]
 
 [workspace.package]
 version = "0.1.0"
