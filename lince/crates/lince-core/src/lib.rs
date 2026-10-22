@@ -26,7 +26,7 @@ pub use query::{parse_query, Kind, Pattern, Query, QueryError};
 pub use search::{search, sort_hits, sort_results, Hit, SortKey};
 pub use source::{BuildStats, Built, Method, Source};
 pub use text::{decimal, seconds, thousands};
-pub use time::{filetime_from_local, format_filetime_local};
+pub use time::{filetime_from_local, format_filetime_local, format_filetime_short};
 pub use walk::{walk, WalkStats};
 #[cfg(windows)]
 pub use windows::{drive_kind, ntfs_volumes, Volume};

@@ -1,0 +1,17 @@
+[package]
+name = "lince-gui"
+description = "Lince con ventana de Windows: buscar archivos al instante"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "Lince"
+path = "src/main.rs"
+
+[dependencies]
+lince-core = { path = "../lince-core" }
+rayon = "1.12"
+
+[dev-dependencies]
+lince-testdata = { path = "../lince-testdata" }

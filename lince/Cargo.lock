@@ -361,6 +361,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lince-gui"
+version = "0.1.0"
+dependencies = [
+ "lince-core",
+ "lince-testdata",
+ "rayon",
+]
+
+[[package]]
 name = "lince-ntfs"
 version = "0.1.0"
 dependencies = [

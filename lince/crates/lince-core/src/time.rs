@@ -36,14 +36,21 @@ fn unix_to_filetime(secs: i64) -> Option<u64> {
 
 /// `AAAA-MM-DD hh:mm:ss` en hora local; vacío si la fecha es 0 o inválida.
 pub fn format_filetime_local(ft: u64) -> String {
+    format_with(ft, "%Y-%m-%d %H:%M:%S")
+}
+
+/// `DD/MM/AAAA hh:mm` en hora local, como en el Explorador en español.
+pub fn format_filetime_short(ft: u64) -> String {
+    format_with(ft, "%d/%m/%Y %H:%M")
+}
+
+fn format_with(ft: u64, fmt: &str) -> String {
     if ft == 0 {
         return String::new();
     }
     let secs = (ft / TICKS_PER_SEC) as i64 - EPOCH_DIFF_SECS;
     match Local.timestamp_opt(secs, 0) {
-        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => {
-            dt.format("%Y-%m-%d %H:%M:%S").to_string()
-        }
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => dt.format(fmt).to_string(),
         LocalResult::None => String::new(),
     }
 }
@@ -56,6 +63,13 @@ mod tests {
     fn round_trips_through_local_time() {
         let ft = filetime_from_local(2026, 10, 22, 14, 5, 9).unwrap();
         assert_eq!(format_filetime_local(ft), "2026-10-22 14:05:09");
+    }
+
+    #[test]
+    fn short_local_format() {
+        let ft = filetime_from_local(2026, 10, 22, 14, 5, 9).unwrap();
+        assert_eq!(format_filetime_short(ft), "22/10/2026 14:05");
+        assert_eq!(format_filetime_short(0), "");
     }
 
     #[test]
