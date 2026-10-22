@@ -136,6 +136,9 @@ impl Volume {
 
 impl ReadAt for Volume {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        if buf.is_empty() {
+            return Ok(());
+        }
         let align = ALIGN as u64;
         let start = offset & !(align - 1);
         let end = (offset + buf.len() as u64).div_ceil(align) * align;

@@ -84,7 +84,13 @@ impl Source {
                     ));
                     from_walk(&label, PathBuf::from(format!("{label}\\")), start)
                 }
-                Err(e) => Err(format!("{label}: {e}")),
+                // Unidades de red y otras que no admiten lectura cruda.
+                Err(e) => {
+                    warn(format!(
+                        "no se pudo leer la MFT de {label} ({e}); se recorren sus carpetas."
+                    ));
+                    from_walk(&label, PathBuf::from(format!("{label}\\")), start)
+                }
             },
             #[cfg(not(windows))]
             Source::Volume(_) => Err(format!(
