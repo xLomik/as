@@ -58,6 +58,7 @@ administrador:
 | Índice con la MFT en caché del sistema | 3,8 s |
 | Consulta `*` (recorre todo el índice) | 38 ms |
 | Consulta dirigida (`cmd.exe`) | 1 ms |
+| Memoria máxima | 751 MB (pico durante el parseo; objetivo ≤ 120 B por archivo) |
 | Prueba de exactitud | 3 archivos nuevos (hard link y Unicode) con ruta y tamaño exactos |
 
 Linux, imagen NTFS de 300 000 archivos (en caché): índice en 0,25 s
@@ -69,5 +70,6 @@ Pendiente de rendimiento detectado (para la fase de tiempo real):
   medir si 8–16 rinde más en discos virtuales.
 - La lectura en Windows copia cada trozo desde un buffer alineado nuevo:
   reutilizar un buffer alineado por hilo y leer directo en él.
-- El parseo crea un `String` y un `Vec` por registro: escribir los nombres
+- El parseo crea un `String` y un `Vec` por registro y los guarda todos antes
+  de construir el índice (pico de 751 MB en `C:`): escribir los nombres
   directamente a un buffer por trozo bajaría tiempo y memoria pico.
