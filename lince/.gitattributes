@@ -1,0 +1,4 @@
+# Las imagenes de prueba son binarias; los listados esperados, siempre LF.
+fixtures/*.gz binary
+fixtures/*.tsv text eol=lf
+*.sh text eol=lf

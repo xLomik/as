@@ -1,0 +1,20 @@
+[package]
+name = "lince"
+description = "Buscador de archivos instantaneo para Windows (lee la MFT de NTFS)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "lince"
+path = "src/main.rs"
+
+[dependencies]
+lince-core = { path = "../lince-core" }
+lince-ntfs = { path = "../lince-ntfs" }
+clap = { version = "4.6", features = ["derive"] }
+rayon = "1.12"
+
+[dev-dependencies]
+lince-testdata = { path = "../lince-testdata" }
+tempfile = "3"

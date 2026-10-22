@@ -1,0 +1,130 @@
+name: Lince
+
+# Pruebas en Linux y Windows, prueba real contra la MFT del runner de
+# Windows (que corre como administrador) y lince.exe como artefacto.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "lince/**"
+      - ".github/workflows/lince.yml"
+    tags: ["lince-v*"]
+  pull_request:
+    paths:
+      - "lince/**"
+      - ".github/workflows/lince.yml"
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lince
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lince
+
+      - name: Formato
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Pruebas
+        run: cargo test --workspace
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: lince
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lince
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Pruebas
+        run: cargo test --workspace
+
+      - name: Compilar lince.exe
+        run: cargo build --release -p lince
+
+      - name: Prueba real contra la MFT del volumen
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "target\release\lince.exe"
+          $root = Join-Path $env:RUNNER_TEMP "lince-prueba"
+          New-Item -ItemType Directory -Force (Join-Path $root "Sub Carpeta") | Out-Null
+          $uno = Join-Path $root "marcador-lince-uno.txt"
+          $dos = Join-Path $root "Sub Carpeta\marcador-lince-dos ñ.bin"
+          $enlace = Join-Path $root "marcador-lince-enlace.txt"
+          [IO.File]::WriteAllText($uno, "hola")
+          [IO.File]::WriteAllBytes($dos, (New-Object byte[] 12345))
+          New-Item -ItemType HardLink -Path $enlace -Target $uno | Out-Null
+          if (-not (Test-Path $enlace)) { throw "no se pudo crear el hard link" }
+          $vol = (Get-Item $root).PSDrive.Name + ":"
+          Write-Host "Volumen de prueba: $vol"
+
+          $csv = Join-Path $env:RUNNER_TEMP "resultados.csv"
+          # stderr (--stats) a texto: debe confirmar que se leyó la MFT y no se
+          # recurrió al recorrido de carpetas.
+          $log = & $exe --volume $vol --stats --csv $csv marcador-lince 2>&1 | ForEach-Object { "$_" }
+          $code = $LASTEXITCODE
+          $log | Write-Host
+          if ($code -ne 0) { throw "lince termino con codigo $code" }
+          if (-not ($log -match "\] MFT")) { throw "no se leyo la MFT (¿sin administrador?)" }
+
+          $rows = @(Import-Csv -Path $csv -Delimiter ";" -Encoding utf8)
+          $rows | Format-Table | Out-String | Write-Host
+          $want = @{ $uno = "4"; $dos = "12345"; $enlace = "4" }
+          if ($rows.Count -ne $want.Count) { throw "se esperaban $($want.Count) resultados, hay $($rows.Count)" }
+          foreach ($r in $rows) {
+            $key = $want.Keys | Where-Object { $_ -ieq $r.ruta }
+            if (-not $key) { throw "resultado inesperado: $($r.ruta)" }
+            if ($r.'tamaño' -ne $want[$key]) { throw "$($r.ruta): tamaño $($r.'tamaño'), se esperaba $($want[$key])" }
+          }
+          Write-Host "OK: rutas y tamaños coinciden con la MFT"
+
+      - name: Rendimiento en el volumen del sistema
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "target\release\lince.exe"
+          & $exe --volume C: --stats --count "*"
+          & $exe --volume C: --stats --limit 5 cmd.exe
+
+      - name: Recorrido de carpetas (--path)
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "target\release\lince.exe"
+          $out = & $exe --path $env:RUNNER_TEMP marcador-lince-uno
+          if (-not ($out -match "marcador-lince-uno.txt")) { throw "el recorrido no encontro el archivo: $out" }
+          Write-Host $out
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: lince-windows
+          path: |
+            lince/target/release/lince.exe
+            lince/README.md
