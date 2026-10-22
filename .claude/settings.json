@@ -24,5 +24,23 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "claude-mem@thedotmack": true,
+    "context-mode@context-mode": true
+  },
+  "extraKnownMarketplaces": {
+    "thedotmack": {
+      "source": {
+        "source": "github",
+        "repo": "thedotmack/claude-mem"
+      }
+    },
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      }
+    }
   }
 }
