@@ -164,7 +164,9 @@ fn run(args: &Args) -> Result<usize, String> {
         .flat_map(|(s, ix)| search(ix, &query).into_iter().map(move |i| (s, i)))
         .collect();
     let searched = t.elapsed();
-    sort_hits(&indexes, &mut hits, args.sort, args.desc);
+    if !args.count {
+        sort_hits(&indexes, &mut hits, args.sort, args.desc);
+    }
     let total = hits.len();
     if let Some(n) = args.limit {
         hits.truncate(n);

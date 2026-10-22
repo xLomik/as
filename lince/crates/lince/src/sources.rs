@@ -42,7 +42,10 @@ pub struct Built {
 impl Source {
     pub fn label(&self) -> String {
         match self {
-            Source::Volume(v) => v.trim_end_matches(['\\', '/']).to_uppercase(),
+            Source::Volume(v) => {
+                let v = v.trim_end_matches(['\\', '/', ':']).to_uppercase();
+                format!("{v}:")
+            }
             Source::Image(_) => "IMG:".to_string(),
             Source::Path(p) => p.display().to_string(),
         }
@@ -136,4 +139,16 @@ fn from_walk(label: &str, path: PathBuf, start: Instant) -> Result<Built, String
         },
         index,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_labels_are_normalized() {
+        for (given, want) in [("c", "C:"), ("C:", "C:"), ("d:\\", "D:"), ("e:/", "E:")] {
+            assert_eq!(Source::Volume(given.into()).label(), want, "{given}");
+        }
+    }
 }
