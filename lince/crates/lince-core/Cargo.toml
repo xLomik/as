@@ -14,3 +14,4 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 
 [dev-dependencies]
 lince-testdata = { path = "../lince-testdata" }
+tempfile = "3"
