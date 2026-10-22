@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 lince-ntfs = { path = "../lince-ntfs" }
 rayon = "1.12"
+memchr = "2.8"
+regex = "1.13"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 lince-testdata = { path = "../lince-testdata" }

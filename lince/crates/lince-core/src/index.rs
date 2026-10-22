@@ -27,7 +27,7 @@ pub struct Entry {
 const MAX_DEPTH: usize = 4096;
 
 /// Segundos entre 1601-01-01 y 1970-01-01.
-const EPOCH_DIFF_SECS: i64 = 11_644_473_600;
+pub(crate) const EPOCH_DIFF_SECS: i64 = 11_644_473_600;
 
 /// Convierte FILETIME a segundos Unix (redondeando hacia abajo).
 pub fn filetime_to_unix(ft: u64) -> i64 {
@@ -88,6 +88,12 @@ impl Index {
     pub fn folded_name(&self, i: u32) -> &[u8] {
         let i = i as usize;
         &self.folded[self.folded_starts[i] as usize..self.folded_starts[i + 1] as usize - 1]
+    }
+
+    /// Posición en [`Index::folded`] donde empieza la entrada `i`
+    /// (`i == len()` da el final del buffer).
+    pub fn folded_start(&self, i: usize) -> usize {
+        self.folded_starts[i] as usize
     }
 
     /// Entrada a la que pertenece la posición `off` de [`Index::folded`].

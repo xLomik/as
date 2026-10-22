@@ -3,6 +3,9 @@
 mod fold;
 mod index;
 mod mft;
+mod query;
+mod search;
+mod time;
 
 pub use fold::fold_into;
 pub use index::{
@@ -10,3 +13,6 @@ pub use index::{
     NO_PARENT,
 };
 pub use mft::index_from_mft;
+pub use query::{parse_query, Kind, Pattern, Query, QueryError};
+pub use search::{search, sort_results, SortKey};
+pub use time::{filetime_from_local, format_filetime_local};
