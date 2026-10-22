@@ -16,7 +16,7 @@ Abra **PowerShell o CMD como administrador** (leer la MFT lo exige) y ejecute:
 ```
 lince informe              todo lo que contenga «informe» en todos los discos NTFS
 lince "*.pdf size:>10mb"   PDF de más de 10 MB
-lince ext:docx;xlsx dm:2026-10      Word y Excel modificados en octubre de 2026
+lince "ext:docx;xlsx" dm:2026-10    Word y Excel modificados en octubre de 2026
 lince --volume D: foto     solo en D:
 lince --csv resultados.csv ext:dwg  guarda los resultados para Excel
 lince --count *            cuántos archivos y carpetas hay
@@ -25,7 +25,8 @@ lince --stats notepad.exe  muestra tiempos de lectura y búsqueda
 
 En **cmd** y **PowerShell**, `>` y `<` redirigen la salida: ponga entre
 comillas los filtros que los lleven, o la consulta entera:
-`lince "*.pdf size:>10mb"`. Para una frase exacta, las comillas deben llegar
+`lince "*.pdf size:>10mb"`. En PowerShell `;` separa comandos: escriba
+`"ext:docx;xlsx"`. Para una frase exacta, las comillas deben llegar
 a Lince: `lince '"foto vacaciones"'` (PowerShell).
 
 Sin permisos de administrador, o en unidades de red y memorias FAT/exFAT,
