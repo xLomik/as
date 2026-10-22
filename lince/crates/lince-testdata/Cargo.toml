@@ -1,0 +1,9 @@
+[package]
+name = "lince-testdata"
+description = "Carga las imagenes NTFS de prueba (solo para tests)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+flate2 = "1.1"
