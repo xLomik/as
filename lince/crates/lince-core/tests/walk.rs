@@ -111,3 +111,22 @@ fn unreadable_folder_is_counted_and_skipped() {
     let paths: Vec<_> = listing(&ix).into_iter().map(|(p, _, _)| p).collect();
     assert_eq!(paths, vec!["cerrada", "visible.txt"]);
 }
+
+/// En red el límite es la latencia: se recorre con más hilos que núcleos, y
+/// el resultado debe ser idéntico.
+#[test]
+fn walking_with_many_threads_gives_the_same_index() {
+    use lince_core::walk_with_threads;
+    let tmp = tempfile::tempdir().unwrap();
+    for d in 0..20 {
+        let dir = tmp.path().join(format!("d{d}"));
+        fs::create_dir(&dir).unwrap();
+        for f in 0..30 {
+            write(&dir.join(format!("f{f}.txt")), f);
+        }
+    }
+    let (normal, s1) = walk(tmp.path()).unwrap();
+    let (many, s2) = walk_with_threads(tmp.path(), 48).unwrap();
+    assert_eq!(listing(&normal), listing(&many));
+    assert_eq!(s1, s2);
+}

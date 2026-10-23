@@ -202,34 +202,42 @@ fn digit_run(s: &[u8], start: usize) -> (&[u8], usize) {
 
 /// Ordena resultados de varias fuentes como una sola lista. Por ruta, cada
 /// fuente va entera y en el orden de su etiqueta (`C:` antes que `D:`).
-pub fn sort_hits(indexes: &[Index], hits: &mut Vec<Hit>, key: SortKey, desc: bool) {
+pub fn sort_hits<I: AsRef<Index> + Sync>(
+    indexes: &[I],
+    hits: &mut Vec<Hit>,
+    key: SortKey,
+    desc: bool,
+) {
     if indexes.len() == 1 {
         let mut ids: Vec<u32> = hits.iter().map(|&(_, i)| i).collect();
-        sort_results(&indexes[0], &mut ids, key, desc);
+        sort_results(indexes[0].as_ref(), &mut ids, key, desc);
         *hits = ids.into_iter().map(|i| (0, i)).collect();
         return;
     }
     if let SortKey::Path = key {
         // Por ruta: cada fuente por separado y las fuentes por su etiqueta.
         let mut order: Vec<usize> = (0..indexes.len()).collect();
-        order.sort_by(|&a, &b| indexes[a].label().cmp(indexes[b].label()));
+        order.sort_by(|&a, &b| indexes[a].as_ref().label().cmp(indexes[b].as_ref().label()));
         if desc {
             order.reverse();
         }
         let mut out = Vec::with_capacity(hits.len());
         for s in order {
             let mut ids: Vec<u32> = hits.iter().filter(|h| h.0 == s).map(|h| h.1).collect();
-            sort_results(&indexes[s], &mut ids, key, desc);
+            sort_results(indexes[s].as_ref(), &mut ids, key, desc);
             out.extend(ids.into_iter().map(|i| (s, i)));
         }
         *hits = out;
         return;
     }
     let dir = |o: Ordering| if desc { o.reverse() } else { o };
-    let name = |&(s, i): &Hit| indexes[s].folded_name(i);
+    let name = |&(s, i): &Hit| indexes[s].as_ref().folded_name(i);
     let by_name = |a: &Hit, b: &Hit| natural_cmp(name(a), name(b)).then(a.cmp(b));
     hits.par_sort_by(|a, b| {
-        let (ea, eb) = (indexes[a.0].entry(a.1), indexes[b.0].entry(b.1));
+        let (ea, eb) = (
+            indexes[a.0].as_ref().entry(a.1),
+            indexes[b.0].as_ref().entry(b.1),
+        );
         match key {
             SortKey::Size => dir(ea.size.cmp(&eb.size)).then_with(|| by_name(a, b)),
             SortKey::Modified => dir(ea.modified.cmp(&eb.modified)).then_with(|| by_name(a, b)),

@@ -7,11 +7,11 @@ use std::path::Path;
 use crate::{format_filetime_local, Hit, Index};
 
 /// CSV para Excel en español: UTF-8 con BOM y `;` como separador.
-pub fn write_csv(path: &Path, indexes: &[Index], hits: &[Hit]) -> io::Result<()> {
+pub fn write_csv<I: AsRef<Index>>(path: &Path, indexes: &[I], hits: &[Hit]) -> io::Result<()> {
     let mut out = BufWriter::new(File::create(path)?);
     out.write_all("\u{feff}ruta;tamaño;modificado\r\n".as_bytes())?;
     for &(src, i) in hits {
-        let ix = &indexes[src];
+        let ix = indexes[src].as_ref();
         let e = ix.entry(i);
         let size = if ix.is_dir(i) {
             String::new()

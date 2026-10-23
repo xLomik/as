@@ -116,7 +116,7 @@ fn sources(args: &Args) -> Result<Vec<Source>, String> {
     out.extend(args.paths.iter().cloned().map(Source::Path));
     if out.is_empty() {
         #[cfg(windows)]
-        out.extend(lince_core::ntfs_volumes().into_iter().map(Source::Volume));
+        out.extend(lince_core::default_sources());
         #[cfg(not(windows))]
         return Err("indique dónde buscar con --path <CARPETA> o --image <ARCHIVO>".into());
     }

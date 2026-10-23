@@ -24,9 +24,11 @@ pub use index::{
 pub use mft::index_from_mft;
 pub use query::{parse_query, Kind, Pattern, Query, QueryError};
 pub use search::{search, sort_hits, sort_results, Hit, SortKey};
-pub use source::{BuildStats, Built, Method, Source};
+pub use source::{is_network_path, BuildStats, Built, Method, Source};
 pub use text::{decimal, seconds, thousands};
 pub use time::{filetime_from_local, format_filetime_local, format_filetime_short};
-pub use walk::{walk, WalkStats};
+pub use walk::{walk, walk_with_threads, WalkStats};
 #[cfg(windows)]
-pub use windows::{drive_kind, ntfs_volumes, Volume};
+pub use windows::{
+    default_sources, drive_kind, is_remote_drive, ntfs_volumes, remote_drives, RemoteDrive, Volume,
+};

@@ -255,3 +255,14 @@ fn ties_keep_ascending_names_when_descending() {
     let names: Vec<&str> = all.iter().map(|&i| ix.name(i)).collect();
     assert_eq!(names, ["c.txt", "a.txt", "b.txt"]);
 }
+
+/// El motor de la ventana guarda los índices en `Arc`: ordenar debe aceptarlos.
+#[test]
+fn sort_hits_accepts_shared_indexes() {
+    use lince_core::{sort_hits, Hit};
+    use std::sync::Arc;
+    let ixs = vec![Arc::new(flat(&[("b.txt", 1), ("a.txt", 2)]))];
+    let mut hits: Vec<Hit> = vec![(0, 1), (0, 2)];
+    sort_hits(&ixs, &mut hits, SortKey::Name, false);
+    assert_eq!(ixs[0].name(hits[0].1), "a.txt");
+}

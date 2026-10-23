@@ -6,10 +6,12 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
+use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
 
 use lince_ntfs::ReadAt;
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, HANDLE, NO_ERROR};
+use windows_sys::Win32::NetworkManagement::WNet::WNetGetConnectionW;
 use windows_sys::Win32::Storage::FileSystem::{
     BusTypeNvme, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, ReadFile,
     FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -22,9 +24,10 @@ use windows_sys::Win32::System::Ioctl::{
 use windows_sys::Win32::System::Threading::CreateEventW;
 use windows_sys::Win32::System::IO::{DeviceIoControl, GetOverlappedResult, OVERLAPPED};
 
-use crate::DriveKind;
+use crate::{DriveKind, Source};
 
 const DRIVE_FIXED: u32 = 3;
+const DRIVE_REMOTE: u32 = 4;
 /// Los *handles* de volumen exigen desplazamientos, longitudes y buffers
 /// alineados al sector; 4096 sirve para sectores de 512 y de 4096 bytes.
 const ALIGN: usize = 4096;
@@ -42,16 +45,80 @@ pub fn ntfs_volumes() -> Vec<String> {
         .collect()
 }
 
+/// Unidad de red con letra (`Z:`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDrive {
+    pub letter: String,
+    /// Ruta real (`\\servidor\recurso`), si Windows la conoce.
+    pub unc: Option<String>,
+}
+
+/// Unidades de red visibles para este proceso. Ojo: un proceso elevado (UAC)
+/// no ve las que el usuario conectó sin elevar.
+pub fn remote_drives() -> Vec<RemoteDrive> {
+    // SAFETY: sin argumentos; devuelve una máscara de bits.
+    let mask = unsafe { GetLogicalDrives() };
+    (0..26u8)
+        .filter(|i| mask & (1 << i) != 0)
+        .map(|i| format!("{}:", (b'A' + i) as char))
+        .filter(|v| drive_type(v) == DRIVE_REMOTE)
+        .map(|letter| RemoteDrive {
+            unc: unc_of(&letter),
+            letter,
+        })
+        .collect()
+}
+
+/// ¿`path` está en una letra de unidad de red?
+pub fn is_remote_drive(path: &Path) -> bool {
+    let s = path.as_os_str().to_string_lossy();
+    let b = s.as_bytes();
+    b.len() >= 2
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && drive_type(&s[..2]) == DRIVE_REMOTE
+}
+
+/// Lo que se indexa si no se indica nada: los volúmenes NTFS fijos (leyendo
+/// la MFT) y las unidades de red (recorriendo sus carpetas).
+pub fn default_sources() -> Vec<Source> {
+    let mut out: Vec<Source> = ntfs_volumes().into_iter().map(Source::Volume).collect();
+    out.extend(
+        remote_drives()
+            .into_iter()
+            .map(|d| Source::Path(PathBuf::from(format!("{}\\", d.letter)))),
+    );
+    out
+}
+
+fn drive_type(volume: &str) -> u32 {
+    let root = wide(&format!("{volume}\\"));
+    // SAFETY: `root` termina en 0 y vive durante la llamada.
+    unsafe { GetDriveTypeW(root.as_ptr()) }
+}
+
+fn unc_of(letter: &str) -> Option<String> {
+    let name = wide(letter);
+    let mut buf = vec![0u16; 1024];
+    let mut len = buf.len() as u32;
+    // SAFETY: buffer con su tamaño en `len`; `name` termina en 0.
+    let r = unsafe { WNetGetConnectionW(name.as_ptr(), buf.as_mut_ptr(), &mut len) };
+    if r != NO_ERROR {
+        return None;
+    }
+    let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..n]))
+}
+
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
 fn is_fixed_ntfs(volume: &str) -> bool {
-    let root = wide(&format!("{volume}\\"));
-    // SAFETY: `root` termina en 0 y vive durante la llamada.
-    if unsafe { GetDriveTypeW(root.as_ptr()) } != DRIVE_FIXED {
+    if drive_type(volume) != DRIVE_FIXED {
         return false;
     }
+    let root = wide(&format!("{volume}\\"));
     let mut fs_name = [0u16; 32];
     // SAFETY: buffers válidos con su tamaño; los punteros nulos son opcionales.
     let ok = unsafe {

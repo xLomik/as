@@ -45,6 +45,18 @@ struct Ctx {
 
 const ROOT_ID: u32 = 0;
 
+/// Como [`walk`], con `threads` listados de carpeta simultáneos. En unidades
+/// de red cada listado espera la respuesta del servidor, así que conviene
+/// tener muchos más en vuelo que núcleos.
+pub fn walk_with_threads(root: &Path, threads: usize) -> io::Result<(Index, WalkStats)> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads.max(1))
+        .thread_name(|i| format!("lince-red-{i}"))
+        .build()
+        .map_err(io::Error::other)?;
+    pool.install(|| walk(root))
+}
+
 /// Recorre `root` en paralelo (una tarea de rayon por carpeta) sin seguir
 /// enlaces simbólicos ni *junctions*.
 pub fn walk(root: &Path) -> io::Result<(Index, WalkStats)> {

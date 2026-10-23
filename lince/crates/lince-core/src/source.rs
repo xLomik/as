@@ -1,10 +1,36 @@
 //! Construcción de índices desde volúmenes, imágenes o carpetas.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::{index_from_mft, walk, DriveKind, Index};
+use crate::{index_from_mft, walk, walk_with_threads, DriveKind, Index};
 use lince_ntfs::{read_layout, read_records, NtfsError, ReadAt, ReadOptions};
+
+/// Listados de carpeta simultáneos al recorrer una unidad de red.
+const NETWORK_WALK_THREADS: usize = 32;
+
+/// ¿La ruta está en otro equipo? (`\\servidor\recurso` o, en Windows, una
+/// letra de unidad de red como `Z:`).
+pub fn is_network_path(path: &Path) -> bool {
+    let s = path.as_os_str().to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return rest.starts_with(r"UNC\");
+    }
+    if s.starts_with(r"\\.\") {
+        return false;
+    }
+    if s.starts_with(r"\\") || s.starts_with("//") {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        crate::windows::is_remote_drive(path)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
 
 /// De dónde sale un índice.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +42,7 @@ pub enum Source {
 }
 
 /// Cifras de cómo se construyó un índice (para `--stats`).
+#[derive(Debug, Clone)]
 pub struct BuildStats {
     pub label: String,
     pub method: Method,
@@ -23,6 +50,7 @@ pub struct BuildStats {
     pub elapsed: Duration,
 }
 
+#[derive(Debug, Clone)]
 pub enum Method {
     Mft {
         drive: Option<DriveKind>,
@@ -136,7 +164,12 @@ fn from_mft<R: ReadAt + ?Sized>(
 }
 
 fn from_walk(label: &str, path: PathBuf, start: Instant) -> Result<Built, String> {
-    let (index, ws) = walk(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let walked = if is_network_path(&path) {
+        walk_with_threads(&path, NETWORK_WALK_THREADS)
+    } else {
+        walk(&path)
+    };
+    let (index, ws) = walked.map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(Built {
         stats: BuildStats {
             label: label.to_string(),
@@ -151,6 +184,14 @@ fn from_walk(label: &str, path: PathBuf, start: Instant) -> Result<Built, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unc_paths_are_network() {
+        assert!(is_network_path(Path::new(r"\\servidor\datos")));
+        assert!(is_network_path(Path::new("//servidor/datos")));
+        assert!(!is_network_path(Path::new(r"C:\datos")));
+        assert!(!is_network_path(Path::new("/home/datos")));
+    }
 
     #[test]
     fn volume_labels_are_normalized() {

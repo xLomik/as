@@ -141,6 +141,12 @@ impl Index {
     }
 }
 
+impl AsRef<Index> for Index {
+    fn as_ref(&self) -> &Index {
+        self
+    }
+}
+
 /// Construye un [`Index`] entrada por entrada.
 pub struct IndexBuilder {
     label: String,
