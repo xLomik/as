@@ -123,6 +123,41 @@ jobs:
           if (-not ($out -match "marcador-lince-uno.txt")) { throw "el recorrido no encontro el archivo: $out" }
           Write-Host $out
 
+      - name: Unidades de red (SMB) y carpetas UNC
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "target\release\lince-cli.exe"
+          $root = Join-Path $env:RUNNER_TEMP "lince-prueba"
+          New-SmbShare -Name "Lince Red" -Path $root -FullAccess "Everyone" | Out-Null
+          $unc = "\\localhost\Lince Red"
+
+          # 1) Ruta UNC directa (recorrido con 32 listados simultaneos).
+          $out = & $exe --path $unc --stats marcador-lince-dos 2>&1 | ForEach-Object { "$_" }
+          $out | Write-Host
+          if (-not ($out -match [regex]::Escape("$unc\Sub Carpeta\marcador-lince-dos ñ.bin"))) {
+            throw "no se encontro el archivo por la ruta UNC"
+          }
+
+          # 2) Unidad de red con letra: debe entrar sola en las fuentes por defecto.
+          net use Z: $unc /persistent:no | Out-Null
+          $out = & $exe --stats marcador-lince-dos 2>&1 | ForEach-Object { "$_" }
+          $out | Write-Host
+          if (-not ($out -match [regex]::Escape("Z:\Sub Carpeta\marcador-lince-dos ñ.bin"))) {
+            throw "la unidad de red Z: no se incluyo en la busqueda"
+          }
+          net use Z: /delete /y | Out-Null
+
+          # 3) La ventana recibe la unidad de red como la recibiria tras el UAC.
+          $gui = Resolve-Path "target\release\Lince.exe"
+          $p = Start-Process -FilePath $gui -ArgumentList @("--elevado", "--extra", "`"$unc`"") -PassThru
+          $deadline = (Get-Date).AddSeconds(30)
+          do { Start-Sleep -Milliseconds 500; $p.Refresh() } until ($p.MainWindowTitle -like "Lince*" -or $p.HasExited -or (Get-Date) -gt $deadline)
+          if ($p.HasExited) { throw "Lince.exe termino solo (codigo $($p.ExitCode))" }
+          [void]$p.CloseMainWindow()
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "la ventana no se cerro" }
+          Remove-SmbShare -Name "Lince Red" -Force
+          Write-Host "OK: rutas UNC, unidades de red con letra y ventana con --extra"
+
       - name: La ventana abre y cierra bien
         shell: pwsh
         run: |
