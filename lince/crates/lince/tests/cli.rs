@@ -3,7 +3,7 @@
 use std::process::{Command, Output};
 
 fn lince(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_lince"))
+    Command::new(env!("CARGO_BIN_EXE_lince-cli"))
         .args(args)
         .output()
         .expect("no se pudo ejecutar lince")

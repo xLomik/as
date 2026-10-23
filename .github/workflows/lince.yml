@@ -1,7 +1,7 @@
 name: Lince
 
 # Pruebas en Linux y Windows, prueba real contra la MFT del runner de
-# Windows (que corre como administrador) y lince.exe como artefacto.
+# Windows (que corre como administrador) y Lince.exe + lince-cli.exe como artefacto.
 
 on:
   push:
@@ -69,13 +69,13 @@ jobs:
       - name: Pruebas
         run: cargo test --workspace
 
-      - name: Compilar lince.exe
-        run: cargo build --release -p lince
+      - name: Compilar Lince.exe (ventana) y lince-cli.exe (consola)
+        run: cargo build --release -p lince -p lince-gui
 
       - name: Prueba real contra la MFT del volumen
         shell: pwsh
         run: |
-          $exe = Resolve-Path "target\release\lince.exe"
+          $exe = Resolve-Path "target\release\lince-cli.exe"
           $root = Join-Path $env:RUNNER_TEMP "lince-prueba"
           New-Item -ItemType Directory -Force (Join-Path $root "Sub Carpeta") | Out-Null
           $uno = Join-Path $root "marcador-lince-uno.txt"
@@ -111,22 +111,41 @@ jobs:
       - name: Rendimiento en el volumen del sistema
         shell: pwsh
         run: |
-          $exe = Resolve-Path "target\release\lince.exe"
+          $exe = Resolve-Path "target\release\lince-cli.exe"
           & $exe --volume C: --stats --count "*"
           & $exe --volume C: --stats --limit 5 cmd.exe
 
       - name: Recorrido de carpetas (--path)
         shell: pwsh
         run: |
-          $exe = Resolve-Path "target\release\lince.exe"
+          $exe = Resolve-Path "target\release\lince-cli.exe"
           $out = & $exe --path $env:RUNNER_TEMP marcador-lince-uno
           if (-not ($out -match "marcador-lince-uno.txt")) { throw "el recorrido no encontro el archivo: $out" }
           Write-Host $out
+
+      - name: La ventana abre y cierra bien
+        shell: pwsh
+        run: |
+          $gui = Resolve-Path "target\release\Lince.exe"
+          $p = Start-Process -FilePath $gui -ArgumentList @("--path", "$env:RUNNER_TEMP\lince-prueba") -PassThru
+          $deadline = (Get-Date).AddSeconds(30)
+          do {
+            Start-Sleep -Milliseconds 500
+            $p.Refresh()
+          } until ($p.MainWindowTitle -like "Lince*" -or $p.HasExited -or (Get-Date) -gt $deadline)
+          if ($p.HasExited) { throw "Lince.exe termino solo (codigo $($p.ExitCode))" }
+          if ($p.MainWindowTitle -notlike "Lince*") { throw "no aparecio la ventana" }
+          Write-Host "Ventana: $($p.MainWindowTitle)"
+          [void]$p.CloseMainWindow()
+          if (-not $p.WaitForExit(15000)) { $p.Kill(); throw "la ventana no se cerro" }
+          if ($p.ExitCode -ne 0) { throw "codigo de salida $($p.ExitCode)" }
+          Write-Host "OK: la ventana abre, muestra su titulo y cierra limpio"
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
           name: lince-windows
           path: |
-            lince/target/release/lince.exe
+            lince/target/release/Lince.exe
+            lince/target/release/lince-cli.exe
             lince/README.md

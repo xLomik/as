@@ -1,4 +1,5 @@
-//! `lince`: busca archivos por nombre al instante leyendo la MFT de NTFS.
+//! `lince-cli`: busca archivos por nombre al instante leyendo la MFT de NTFS
+//! (versión de consola; la ventana es `Lince.exe`).
 
 mod mem;
 mod output;
@@ -33,7 +34,7 @@ Códigos de salida: 0 hay resultados, 1 ninguno, 2 error.";
 
 #[derive(Parser)]
 #[command(
-    name = "lince",
+    name = "lince-cli",
     version,
     about = "Busca archivos por nombre al instante leyendo la MFT de NTFS.",
     after_help = SYNTAX

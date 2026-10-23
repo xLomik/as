@@ -10,5 +10,5 @@ fn main() {
     #[cfg(windows)]
     win::run();
     #[cfg(not(windows))]
-    eprintln!("La ventana de Lince solo funciona en Windows; use el programa `lince`.");
+    eprintln!("La ventana de Lince solo funciona en Windows; use el programa `lince-cli`.");
 }
