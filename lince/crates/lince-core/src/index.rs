@@ -127,11 +127,13 @@ impl Index {
 
     /// Ruta completa, p. ej. `C:\Docs\a.txt`.
     pub fn path(&self, i: u32) -> String {
+        let parts = self.components(i);
         let mut s = self.label.clone();
-        if !s.ends_with(self.sep) {
+        // `C:` necesita la barra para ser la raíz; `\\srv\datos` no.
+        if (!parts.is_empty() || s.ends_with(':')) && !s.ends_with(self.sep) {
             s.push(self.sep);
         }
-        for (k, c) in self.components(i).iter().enumerate() {
+        for (k, c) in parts.iter().enumerate() {
             if k > 0 {
                 s.push(self.sep);
             }
@@ -278,6 +280,16 @@ mod tests {
         assert_eq!(ix.path(1), "C:\\Docs");
         assert_eq!(ix.path(2), "C:\\Docs\\Canción.TXT");
         assert_eq!(ix.components(2), vec!["Docs", "Canción.TXT"]);
+    }
+
+    #[test]
+    fn folder_roots_have_no_trailing_separator() {
+        let mut b = IndexBuilder::new(r"\\srv\datos", '\\');
+        let root = b.push("", NO_PARENT, FLAG_DIR | FLAG_ROOT, 0, 0, 0);
+        let a = b.push("a.txt", root, 0, 1, 0, 0);
+        let ix = b.finish();
+        assert_eq!(ix.path(root), r"\\srv\datos");
+        assert_eq!(ix.path(a), r"\\srv\datos\a.txt");
     }
 
     #[test]

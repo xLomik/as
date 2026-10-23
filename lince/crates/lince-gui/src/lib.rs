@@ -7,6 +7,6 @@ mod engine;
 mod model;
 
 pub use args::{parse_args, quote_arg, relaunch_params, GuiArgs, RELAUNCH_FLAG};
-pub use config::{add_folder, load_folders, save_folders, with_folders};
+pub use config::{add_folder, covering_source, load_folders, save_folders, with_folders};
 pub use engine::{Engine, Event, Indexes, Results};
 pub use model::{cell_text, format_size, Column, COLUMNS};

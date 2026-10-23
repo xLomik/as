@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use lince_core::{seconds, thousands, write_csv, Method, Source};
 use lince_gui::{
-    add_folder, cell_text, load_folders, save_folders, with_folders, Column, Engine, Event,
-    Results, COLUMNS,
+    add_folder, cell_text, covering_source, load_folders, save_folders, with_folders, Column,
+    Engine, Event, Results, COLUMNS,
 };
 use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -785,6 +785,17 @@ impl App {
             return;
         };
         let folder = PathBuf::from(&text);
+        if let Some(s) = covering_source(&self.current_sources(), &folder) {
+            message_box(
+                self.hwnd,
+                &format!(
+                    "{text} ya está incluida en la búsqueda (dentro de {}).",
+                    s.label()
+                ),
+                MB_ICONINFORMATION,
+            );
+            return;
+        }
         let reachable = std::fs::metadata(&folder).is_ok_and(|m| m.is_dir());
         if !reachable
             && !ask_yes_no(

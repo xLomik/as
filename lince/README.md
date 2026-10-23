@@ -30,6 +30,21 @@ funciona igual pero recorre las carpetas (más lento).
 La caja de búsqueda acepta la misma sintaxis que la versión de consola (tabla
 de abajo): `*.pdf`, `size:>10mb`, `dm:2026-10`, `ext:dwg;dxf`...
 
+### Unidades y carpetas de red
+
+- Las **unidades de red conectadas** (Z:, P:...) se incluyen solas, también
+  cuando Lince corre como administrador (Windows las oculta a los programas
+  elevados; Lince le pasa su ruta `\\servidor\carpeta` a la copia elevada).
+- Para una carpeta de red sin letra, o cualquier otra carpeta: menú
+  **Buscar en → Agregar carpeta o unidad de red…** y escriba
+  `\\servidor\carpeta` (o pulse «Examinar…»). Queda guardada para las
+  próximas veces. **Buscar en → Quitar carpetas agregadas…** las borra.
+- Los discos locales están listos en segundos; la red se sigue leyendo en
+  segundo plano (la barra de abajo dice «indexando N más…») y sus archivos
+  van apareciendo en la lista. En red no hay MFT: se recorren las carpetas
+  con 32 lecturas a la vez, así que tarda más que un disco local.
+- Lince no se entera solo de los cambios en la red: **F5** vuelve a leerla.
+
 ## Versión de consola: `lince-cli.exe`
 
 Para scripts y uso avanzado. Abra **PowerShell o CMD como administrador**

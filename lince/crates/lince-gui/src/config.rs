@@ -47,29 +47,43 @@ pub fn add_folder(file: &Path, folder: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Suma a `base` las carpetas guardadas que no estén ya (misma ruta sin
-/// distinguir mayúsculas ni barra final).
+/// Suma a `base` las carpetas guardadas que no estén ya dentro de alguna
+/// fuente (así nada sale dos veces en los resultados).
 pub fn with_folders(base: Vec<Source>, folders: &[PathBuf]) -> Vec<Source> {
     let mut out = base;
     for f in folders {
-        let present = out.iter().any(|s| match s {
-            Source::Path(p) | Source::Image(p) => same_path(p, f),
-            Source::Volume(_) => false,
-        });
-        if !present {
+        if covering_source(&out, f).is_none() {
             out.push(Source::Path(f.clone()));
         }
     }
     out
 }
 
+/// Fuente que ya incluye `folder` (es la misma carpeta o la contiene), sin
+/// distinguir mayúsculas ni barra final, como Windows.
+pub fn covering_source<'a>(sources: &'a [Source], folder: &Path) -> Option<&'a Source> {
+    let folder = norm(folder);
+    sources.iter().find(|s| {
+        let root = match s {
+            Source::Path(p) => norm(p),
+            Source::Volume(_) => s.label().to_lowercase(),
+            Source::Image(_) => return false,
+        };
+        folder == root
+            || folder
+                .strip_prefix(&root)
+                .is_some_and(|rest| rest.starts_with(['\\', '/']))
+    })
+}
+
 fn same_path(a: &Path, b: &Path) -> bool {
-    let norm = |p: &Path| {
-        p.to_string_lossy()
-            .trim_end_matches(['\\', '/'])
-            .to_lowercase()
-    };
     norm(a) == norm(b)
+}
+
+fn norm(p: &Path) -> String {
+    p.to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_lowercase()
 }
 
 #[cfg(test)]
@@ -121,6 +135,28 @@ mod tests {
                 Source::Path(PathBuf::from(r"\\srv\otra")),
             ]
         );
+    }
+
+    #[test]
+    fn folders_inside_a_source_are_not_indexed_twice() {
+        let base = vec![
+            Source::Volume("C:".into()),
+            Source::Path(PathBuf::from(r"Z:\")),
+            Source::Path(PathBuf::from(r"\\srv\datos")),
+        ];
+        let inside = [
+            PathBuf::from(r"c:\Users\ana"),
+            PathBuf::from(r"Z:\Proyectos"),
+            PathBuf::from(r"\\SRV\datos\2026"),
+        ];
+        for f in &inside {
+            assert!(covering_source(&base, f).is_some(), "{}", f.display());
+        }
+        assert_eq!(with_folders(base.clone(), &inside), base);
+        // Mismo comienzo no es estar dentro.
+        let outside = PathBuf::from(r"\\srv\datos-viejos");
+        assert!(covering_source(&base, &outside).is_none());
+        assert!(covering_source(&base, Path::new(r"D:\x")).is_none());
     }
 
     #[test]
