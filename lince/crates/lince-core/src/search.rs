@@ -130,20 +130,17 @@ pub enum SortKey {
 
 /// Ordena resultados en paralelo. Empates: por nombre y luego por posición.
 pub fn sort_results(ix: &Index, res: &mut [u32], key: SortKey, desc: bool) {
-    let by_name = |a: &u32, b: &u32| ix.folded_name(*a).cmp(ix.folded_name(*b)).then(a.cmp(b));
+    let dir = |o: Ordering| if desc { o.reverse() } else { o };
+    let by_name =
+        |a: &u32, b: &u32| natural_cmp(ix.folded_name(*a), ix.folded_name(*b)).then(a.cmp(b));
     match key {
-        SortKey::Name => res.par_sort_by(by_name),
+        SortKey::Name => res.par_sort_by(|a, b| dir(by_name(a, b))),
+        // Empates de tamaño o fecha: siempre por nombre ascendente.
         SortKey::Size => res.par_sort_by(|a, b| {
-            ix.entry(*a)
-                .size
-                .cmp(&ix.entry(*b).size)
-                .then_with(|| by_name(a, b))
+            dir(ix.entry(*a).size.cmp(&ix.entry(*b).size)).then_with(|| by_name(a, b))
         }),
         SortKey::Modified => res.par_sort_by(|a, b| {
-            ix.entry(*a)
-                .modified
-                .cmp(&ix.entry(*b).modified)
-                .then_with(|| by_name(a, b))
+            dir(ix.entry(*a).modified.cmp(&ix.entry(*b).modified)).then_with(|| by_name(a, b))
         }),
         SortKey::Path => {
             // Componentes en minúsculas unidos por \0: compara carpeta por carpeta.
@@ -158,15 +155,49 @@ pub fn sort_results(ix: &Index, res: &mut [u32], key: SortKey, desc: bool) {
                     (k, i)
                 })
                 .collect();
-            keyed.par_sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+            keyed.par_sort_by(|a, b| dir(natural_cmp(&a.0, &b.0).then(a.1.cmp(&b.1))));
             for (slot, (_, i)) in res.iter_mut().zip(keyed) {
                 *slot = i;
             }
         }
     }
-    if desc {
-        res.reverse();
+}
+
+/// Compara como el Explorador: las cifras seguidas se comparan por su valor
+/// (`archivo_2` antes que `archivo_10`); el resto, byte a byte.
+pub(crate) fn natural_cmp(a: &[u8], b: &[u8]) -> Ordering {
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i].is_ascii_digit() && b[j].is_ascii_digit() {
+            let (na, ni) = digit_run(a, i);
+            let (nb, nj) = digit_run(b, j);
+            let ord = na.len().cmp(&nb.len()).then_with(|| na.cmp(nb));
+            if ord != Ordering::Equal {
+                return ord;
+            }
+            (i, j) = (ni, nj);
+        } else if a[i] != b[j] {
+            return a[i].cmp(&b[j]);
+        } else {
+            i += 1;
+            j += 1;
+        }
     }
+    (a.len() - i).cmp(&(b.len() - j)).then_with(|| a.cmp(b))
+}
+
+/// Cifras que empiezan en `start`, sin ceros a la izquierda (así más cifras
+/// significa número mayor), y la posición donde terminan.
+fn digit_run(s: &[u8], start: usize) -> (&[u8], usize) {
+    let mut end = start;
+    while end < s.len() && s[end].is_ascii_digit() {
+        end += 1;
+    }
+    let first = s[start..end]
+        .iter()
+        .position(|&d| d != b'0')
+        .map_or(end, |p| start + p);
+    (&s[first..end], end)
 }
 
 /// Ordena resultados de varias fuentes como una sola lista. Por ruta, cada
@@ -194,18 +225,15 @@ pub fn sort_hits(indexes: &[Index], hits: &mut Vec<Hit>, key: SortKey, desc: boo
         *hits = out;
         return;
     }
+    let dir = |o: Ordering| if desc { o.reverse() } else { o };
     let name = |&(s, i): &Hit| indexes[s].folded_name(i);
-    let cmp = |a: &Hit, b: &Hit| -> Ordering {
+    let by_name = |a: &Hit, b: &Hit| natural_cmp(name(a), name(b)).then(a.cmp(b));
+    hits.par_sort_by(|a, b| {
         let (ea, eb) = (indexes[a.0].entry(a.1), indexes[b.0].entry(b.1));
-        let primary = match key {
-            SortKey::Size => ea.size.cmp(&eb.size),
-            SortKey::Modified => ea.modified.cmp(&eb.modified),
-            _ => Ordering::Equal,
-        };
-        primary.then_with(|| name(a).cmp(name(b))).then(a.cmp(b))
-    };
-    hits.par_sort_by(cmp);
-    if desc {
-        hits.reverse();
-    }
+        match key {
+            SortKey::Size => dir(ea.size.cmp(&eb.size)).then_with(|| by_name(a, b)),
+            SortKey::Modified => dir(ea.modified.cmp(&eb.modified)).then_with(|| by_name(a, b)),
+            _ => dir(by_name(a, b)),
+        }
+    });
 }

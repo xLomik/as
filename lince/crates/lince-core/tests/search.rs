@@ -211,3 +211,47 @@ fn sort_hits_across_sources() {
         ["C:\\a.txt", "C:\\c.txt", "D:\\b.txt", "D:\\d.txt"]
     );
 }
+
+fn flat(names: &[(&str, u64)]) -> Index {
+    let mut b = IndexBuilder::new("C:", '\\');
+    let root = b.push("", NO_PARENT, FLAG_DIR | FLAG_ROOT, 0, 0, 0);
+    for &(name, size) in names {
+        b.push(name, root, 0, size, 0, 0);
+    }
+    b.finish()
+}
+
+/// Como el Explorador: los números dentro del nombre se comparan por valor.
+#[test]
+fn name_sort_is_natural() {
+    let ix = flat(&[
+        ("archivo_10.txt", 1),
+        ("archivo_2.txt", 1),
+        ("Archivo_1.txt", 1),
+        ("archivo_002b.txt", 1),
+        ("archivo.txt", 1),
+    ]);
+    let mut all: Vec<u32> = (1..ix.len() as u32).collect();
+    sort_results(&ix, &mut all, SortKey::Name, false);
+    let names: Vec<&str> = all.iter().map(|&i| ix.name(i)).collect();
+    assert_eq!(
+        names,
+        [
+            "archivo.txt",
+            "Archivo_1.txt",
+            "archivo_2.txt",
+            "archivo_002b.txt",
+            "archivo_10.txt"
+        ]
+    );
+}
+
+/// Por tamaño descendente, los empates siguen por nombre ascendente.
+#[test]
+fn ties_keep_ascending_names_when_descending() {
+    let ix = flat(&[("b.txt", 5), ("a.txt", 5), ("c.txt", 9)]);
+    let mut all: Vec<u32> = (1..ix.len() as u32).collect();
+    sort_results(&ix, &mut all, SortKey::Size, true);
+    let names: Vec<&str> = all.iter().map(|&i| ix.name(i)).collect();
+    assert_eq!(names, ["c.txt", "a.txt", "b.txt"]);
+}
