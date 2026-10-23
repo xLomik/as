@@ -58,9 +58,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
+use super::dialog::ask_path;
 use super::util::{
-    ask_yes_no, message_box, open_path, pick_folder, save_csv_dialog, set_clipboard,
-    show_in_folder, wide, window_text,
+    ask_yes_no, message_box, open_path, save_csv_dialog, set_clipboard, show_in_folder, wide,
+    window_text,
 };
 
 /// Mensaje con un `Box<Event>` del motor en `lParam`.
@@ -775,13 +776,27 @@ impl App {
             );
             return;
         };
-        let Some(folder) = pick_folder(
+        let Some(text) = ask_path(
             self.hwnd,
-            "Elija la carpeta o unidad de red donde buscar. Para una carpeta de red \
-             también puede escribir su ruta abajo, p. ej. \\\\servidor\\carpeta",
+            "Agregar carpeta o unidad de red",
+            "Escriba la ruta de la carpeta donde buscar. Para una carpeta de red use \
+             \\\\servidor\\carpeta. También puede pulsar «Examinar…».",
         ) else {
             return;
         };
+        let folder = PathBuf::from(&text);
+        let reachable = std::fs::metadata(&folder).is_ok_and(|m| m.is_dir());
+        if !reachable
+            && !ask_yes_no(
+                self.hwnd,
+                &format!(
+                    "No se puede acceder a {text} ahora mismo.\n\n\
+                     ¿Agregarla de todas formas? Se buscará cuando esté disponible."
+                ),
+            )
+        {
+            return;
+        }
         match add_folder(&file, &folder) {
             Ok(true) => self.engine.reindex(self.current_sources()),
             Ok(false) => message_box(

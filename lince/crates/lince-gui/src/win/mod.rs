@@ -1,5 +1,6 @@
 //! Arranque de la ventana en Windows.
 
+mod dialog;
 mod util;
 mod window;
 
