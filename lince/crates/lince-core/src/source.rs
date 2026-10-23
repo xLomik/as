@@ -7,6 +7,7 @@ use crate::{index_from_mft, walk, DriveKind, Index};
 use lince_ntfs::{read_layout, read_records, NtfsError, ReadAt, ReadOptions};
 
 /// De dónde sale un índice.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     /// Volumen de Windows (`C:`).
     Volume(String),
