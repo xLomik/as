@@ -9,11 +9,15 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 
 use lince_core::{seconds, thousands, write_csv, Method, Source};
-use lince_gui::{cell_text, Column, Engine, Event, Results, COLUMNS};
+use lince_gui::{
+    add_folder, cell_text, load_folders, save_folders, with_folders, Column, Engine, Event,
+    Results, COLUMNS,
+};
 use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -41,13 +45,13 @@ use windows_sys::Win32::UI::Shell::{
     SHGFI_SYSICONINDEX, SHGFI_USEFILEATTRIBUTES,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, GetClientRect,
-    GetCursorPos, GetWindowLongPtrW, GetWindowRect, KillTimer, MoveWindow, PostMessageW,
-    PostQuitMessage, SendMessageW, SetMenuDefaultItem, SetTimer, SetWindowLongPtrW, SetWindowPos,
-    SetWindowTextW, TrackPopupMenu, BS_PUSHBUTTON, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING,
-    CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CB_SETITEMHEIGHT, CREATESTRUCTW, EN_CHANGE,
-    ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDCANCEL, IDOK, MB_ICONERROR, MB_ICONINFORMATION,
-    MB_ICONWARNING, MF_SEPARATOR, MF_STRING, MINMAXINFO, NONCLIENTMETRICSW,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+    GetClientRect, GetCursorPos, GetWindowLongPtrW, GetWindowRect, KillTimer, MoveWindow,
+    PostMessageW, PostQuitMessage, SendMessageW, SetMenuDefaultItem, SetTimer, SetWindowLongPtrW,
+    SetWindowPos, SetWindowTextW, TrackPopupMenu, BS_PUSHBUTTON, CBN_SELCHANGE, CBS_DROPDOWNLIST,
+    CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CB_SETITEMHEIGHT, CREATESTRUCTW,
+    EN_CHANGE, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDCANCEL, IDOK, MB_ICONERROR,
+    MB_ICONINFORMATION, MB_ICONWARNING, MF_SEPARATOR, MF_STRING, MINMAXINFO, NONCLIENTMETRICSW,
     SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, TPM_RETURNCMD,
     TPM_RIGHTBUTTON, WM_APP, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO,
     WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_TIMER, WS_CHILD, WS_EX_CLIENTEDGE,
@@ -55,7 +59,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::util::{
-    message_box, open_path, save_csv_dialog, set_clipboard, show_in_folder, wide, window_text,
+    ask_yes_no, message_box, open_path, pick_folder, save_csv_dialog, set_clipboard,
+    show_in_folder, wide, window_text,
 };
 
 /// Mensaje con un `Box<Event>` del motor en `lParam`.
@@ -74,17 +79,39 @@ pub const IDM_COPY_NAME: u16 = 204;
 pub const IDM_EXPORT: u16 = 205;
 pub const IDM_REFRESH: u16 = 206;
 pub const IDM_FOCUS_SEARCH: u16 = 207;
+pub const IDM_ADD_FOLDER: u16 = 208;
+pub const IDM_CLEAR_FOLDERS: u16 = 209;
+pub const IDM_EXIT: u16 = 210;
+pub const IDM_HELP: u16 = 211;
 
 const TIMER_SEARCH: usize = 1;
 /// Espera tras la última tecla antes de buscar.
 const DEBOUNCE_MS: u32 = 90;
+
+const HELP: &str = "Escriba en la caja de arriba; los resultados aparecen al instante.\n\n\
+texto\tel nombre contiene «texto»\n\
+a b\tcontiene a y b       \"a b\"  frase exacta\n\
+!texto\tno contiene «texto»\n\
+*.pdf  f?to*\tcomodines sobre el nombre completo\n\
+ext:pdf;docx\tpor extensión\n\
+size:>10mb\tpor tamaño (también <, 1kb..2mb)\n\
+dm:2026-10\tmodificado en ese periodo (dc: creado)\n\
+file:  folder:\tsolo archivos / solo carpetas\n\
+path:texto\tla ruta completa contiene «texto»\n\
+regex:expr\texpresión regular\n\n\
+Las unidades de red se buscan solas. Otras carpetas de la red: menú \
+Buscar en → Agregar carpeta o unidad de red.";
 
 const CUE: &str = "Escriba para buscar…   ej.: informe    *.pdf    size:>10mb    dm:2026-10";
 const ALL_VOLUMES: &str = "Todas las unidades";
 
 /// Datos que se pasan al crear la ventana.
 pub struct Config {
-    pub sources: Vec<Source>,
+    /// Volúmenes y unidades de red (o lo que se pidió por argumentos).
+    pub base_sources: Vec<Source>,
+    /// Archivo de carpetas agregadas; `None` si las fuentes vienen fijas
+    /// por argumentos.
+    pub folders_file: Option<PathBuf>,
 }
 
 pub const CLASS_NAME: PCWSTR = w!("LinceVentanaPrincipal");
@@ -99,7 +126,8 @@ struct App {
     dpi: Cell<u32>,
     fonts: Cell<(HFONT, HFONT)>,
     engine: Engine,
-    sources: Vec<Source>,
+    base_sources: Vec<Source>,
+    folders_file: Option<PathBuf>,
     labels: RefCell<Vec<String>>,
     generation: Cell<u64>,
     shown: Cell<u64>,
@@ -248,7 +276,8 @@ impl App {
             dpi: Cell::new(GetDpiForWindow(hwnd).max(96)),
             fonts: Cell::new((ptr::null_mut(), ptr::null_mut())),
             engine,
-            sources: cfg.sources,
+            base_sources: cfg.base_sources,
+            folders_file: cfg.folders_file,
             labels: RefCell::new(Vec::new()),
             generation: Cell::new(0),
             shown: Cell::new(0),
@@ -329,7 +358,7 @@ impl App {
     }
 
     unsafe fn start(&self) {
-        self.engine.reindex(self.sources.clone());
+        self.engine.reindex(self.current_sources());
         self.request_search();
         SetFocus(self.edit);
     }
@@ -487,7 +516,13 @@ impl App {
             IDM_FOLDER => self.show_folder(),
             IDM_COPY_PATH => self.copy(true),
             IDM_COPY_NAME => self.copy(false),
-            IDM_REFRESH => self.engine.reindex(self.sources.clone()),
+            IDM_REFRESH => self.engine.reindex(self.current_sources()),
+            IDM_ADD_FOLDER => self.add_folder(),
+            IDM_CLEAR_FOLDERS => self.clear_folders(),
+            IDM_HELP => message_box(self.hwnd, HELP, MB_ICONINFORMATION),
+            IDM_EXIT => {
+                DestroyWindow(self.hwnd);
+            }
             IDM_FOCUS_SEARCH => {
                 SetFocus(self.edit);
                 send(self.edit, EM_SETSEL, 0, -1);
@@ -625,18 +660,35 @@ impl App {
                 elapsed,
                 stats,
                 warnings,
+                pending,
             } => {
                 let labels: Vec<String> = stats.iter().map(|s| s.label.clone()).collect();
                 self.fill_volumes(labels);
-                let walked = stats
-                    .iter()
-                    .any(|s| matches!(s.method, Method::Walk { .. }));
+                if pending > 0 {
+                    // Lo indexado ya se puede buscar; el resto (p. ej. la red) sigue.
+                    self.set_status(
+                        1,
+                        &format!(
+                            "{} objetos listos · indexando {} más…",
+                            thousands(entries as u64),
+                            pending
+                        ),
+                    );
+                    return;
+                }
+                // Un volumen local recorrido por carpetas = no hubo permisos de
+                // administrador (las unidades de red siempre se recorren).
+                let no_admin = stats.iter().any(|s| {
+                    matches!(s.method, Method::Walk { .. })
+                        && s.label.len() == 2
+                        && s.label.ends_with(':')
+                });
                 let mut text = format!(
                     "{} objetos indexados en {}",
                     thousands(entries as u64),
                     seconds(elapsed)
                 );
-                if walked {
+                if no_admin {
                     text.push_str(" · sin administrador (más lento)");
                 }
                 self.set_status(1, &text);
@@ -702,6 +754,71 @@ impl App {
             .map_or(0, |k| k + 1);
         send(self.combo, CB_SETCURSEL, keep, 0);
         *self.labels.borrow_mut() = labels;
+    }
+
+    /// Fuentes a indexar: las base más las carpetas agregadas por el usuario.
+    fn current_sources(&self) -> Vec<Source> {
+        let folders = self
+            .folders_file
+            .as_deref()
+            .map(load_folders)
+            .unwrap_or_default();
+        with_folders(self.base_sources.clone(), &folders)
+    }
+
+    unsafe fn add_folder(&self) {
+        let Some(file) = self.folders_file.clone() else {
+            message_box(
+                self.hwnd,
+                "Lince se abrió con carpetas fijas por línea de comandos; no se pueden agregar más.",
+                MB_ICONINFORMATION,
+            );
+            return;
+        };
+        let Some(folder) = pick_folder(
+            self.hwnd,
+            "Elija la carpeta o unidad de red donde buscar. Para una carpeta de red \
+             también puede escribir su ruta abajo, p. ej. \\\\servidor\\carpeta",
+        ) else {
+            return;
+        };
+        match add_folder(&file, &folder) {
+            Ok(true) => self.engine.reindex(self.current_sources()),
+            Ok(false) => message_box(
+                self.hwnd,
+                &format!("{} ya estaba en la lista.", folder.display()),
+                MB_ICONINFORMATION,
+            ),
+            Err(e) => message_box(
+                self.hwnd,
+                &format!("No se pudo guardar la carpeta:\n{e}"),
+                MB_ICONERROR,
+            ),
+        }
+    }
+
+    unsafe fn clear_folders(&self) {
+        let Some(file) = self.folders_file.clone() else {
+            return;
+        };
+        let folders = load_folders(&file);
+        if folders.is_empty() {
+            message_box(self.hwnd, "No hay carpetas agregadas.", MB_ICONINFORMATION);
+            return;
+        }
+        let list: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
+        if ask_yes_no(
+            self.hwnd,
+            &format!(
+                "¿Quitar estas carpetas de la búsqueda?\n\n{}",
+                list.join("\n")
+            ),
+        ) {
+            match save_folders(&file, &[]) {
+                Ok(()) => self.engine.reindex(self.current_sources()),
+                Err(e) => message_box(self.hwnd, &e.to_string(), MB_ICONERROR),
+            }
+        }
     }
 
     unsafe fn update_sort_arrows(&self) {

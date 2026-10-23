@@ -98,11 +98,18 @@ impl Source {
                 Ok(vol) => {
                     let kind = crate::drive_kind(&label);
                     match from_mft(&label, &vol, Some(kind), start) {
+                        Ok(built) => Ok(built),
                         Err(NtfsError::NotNtfs) => {
                             warn(format!("{label} no es NTFS; se recorren sus carpetas."));
                             from_walk(&label, PathBuf::from(format!("{label}\\")), start)
                         }
-                        other => other.map_err(|e| e.to_string()),
+                        // Mejor lento que nada: un volumen raro no se pierde.
+                        Err(e) => {
+                            warn(format!(
+                                "no se pudo leer la MFT de {label} ({e}); se recorren sus carpetas."
+                            ));
+                            from_walk(&label, PathBuf::from(format!("{label}\\")), start)
+                        }
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {

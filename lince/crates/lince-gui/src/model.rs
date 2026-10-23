@@ -66,8 +66,8 @@ pub fn format_size(bytes: u64) -> String {
 }
 
 /// Texto de una celda de la lista.
-pub fn cell_text(indexes: &[Index], (src, i): Hit, col: Column) -> String {
-    let ix = &indexes[src];
+pub fn cell_text<I: AsRef<Index>>(indexes: &[I], (src, i): Hit, col: Column) -> String {
+    let ix = indexes[src].as_ref();
     match col {
         Column::Name => ix.name(i).to_string(),
         Column::Folder => match ix.entry(i).parent {

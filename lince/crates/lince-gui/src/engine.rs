@@ -1,21 +1,25 @@
 //! Motor en segundo plano: indexa y busca sin bloquear la ventana.
 //!
 //! La ventana manda trabajos por un canal y recibe eventos por `notify`
-//! (en Windows, un `PostMessage`). De varias búsquedas pendientes solo se
-//! hace la última: mientras se escribe rápido no se acumula trabajo viejo.
+//! (en Windows, un `PostMessage`). Cada fuente se indexa en su propio hilo y
+//! entra en las búsquedas en cuanto termina: un disco local está listo en
+//! segundos aunque una carpeta de red tarde minutos. De varias búsquedas
+//! pendientes solo se hace la última.
 
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lince_core::{parse_query, search, sort_hits, BuildStats, Hit, Index, SortKey, Source};
-use rayon::prelude::*;
+use lince_core::{parse_query, search, sort_hits, BuildStats, Built, Hit, Index, SortKey, Source};
+
+/// Índices con los que se calculó un resultado.
+pub type Indexes = Arc<Vec<Arc<Index>>>;
 
 /// Resultado de una búsqueda. Lleva los índices con los que se calculó, así
 /// la lista se pinta bien aunque mientras tanto se reindexe.
 pub struct Results {
     pub generation: u64,
-    pub indexes: Arc<Vec<Index>>,
+    pub indexes: Indexes,
     pub hits: Vec<Hit>,
     pub elapsed: Duration,
     pub error: Option<String>,
@@ -26,12 +30,14 @@ pub enum Event {
     Indexing {
         labels: Vec<String>,
     },
+    /// Terminó una fuente más (`pending` = las que faltan).
     Indexed {
         entries: usize,
         elapsed: Duration,
         stats: Vec<BuildStats>,
         /// Avisos y errores para el usuario (p. ej. sin administrador).
         warnings: Vec<String>,
+        pending: usize,
     },
     Results(Results),
 }
@@ -47,6 +53,12 @@ struct SearchJob {
 enum Job {
     Reindex(Vec<Source>),
     Search(SearchJob),
+    /// Una fuente terminó (de la tanda `epoch`).
+    Built {
+        epoch: u64,
+        result: Result<Built, String>,
+        warnings: Vec<String>,
+    },
 }
 
 pub struct Engine {
@@ -56,9 +68,10 @@ pub struct Engine {
 impl Engine {
     pub fn start(notify: impl Fn(Event) + Send + 'static) -> Engine {
         let (tx, rx) = mpsc::channel();
+        let worker_tx = tx.clone();
         thread::Builder::new()
             .name("lince-motor".into())
-            .spawn(move || run(rx, notify))
+            .spawn(move || run(worker_tx, rx, notify))
             .expect("no se pudo crear el hilo del motor");
         Engine { tx }
     }
@@ -86,26 +99,76 @@ impl Engine {
     }
 }
 
-fn run(rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
-    let mut indexes: Arc<Vec<Index>> = Arc::new(Vec::new());
-    let mut indexed = false;
+/// Estado de la indexación en curso.
+struct Batch {
+    epoch: u64,
+    started: Instant,
+    pending: usize,
+    stats: Vec<BuildStats>,
+    warnings: Vec<String>,
+}
+
+fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
+    let mut indexes: Indexes = Arc::new(Vec::new());
+    let mut batch: Option<Batch> = None;
     let mut last: Option<SearchJob> = None;
     while let Ok(first) = rx.recv() {
-        let mut reindex = None;
         let mut newest = None;
         for job in std::iter::once(first).chain(rx.try_iter()) {
             match job {
-                Job::Reindex(sources) => reindex = Some(sources),
                 Job::Search(s) => newest = Some(s),
+                Job::Reindex(sources) => {
+                    let epoch = batch.as_ref().map_or(1, |b| b.epoch + 1);
+                    notify(Event::Indexing {
+                        labels: sources.iter().map(Source::label).collect(),
+                    });
+                    indexes = Arc::new(Vec::new());
+                    batch = Some(Batch {
+                        epoch,
+                        started: Instant::now(),
+                        pending: sources.len(),
+                        stats: Vec::new(),
+                        warnings: Vec::new(),
+                    });
+                    for source in sources {
+                        spawn_build(source, epoch, tx.clone());
+                    }
+                }
+                Job::Built {
+                    epoch,
+                    result,
+                    warnings,
+                } => {
+                    let Some(b) = batch.as_mut().filter(|b| b.epoch == epoch) else {
+                        continue; // de una indexación anterior (F5)
+                    };
+                    b.pending -= 1;
+                    b.warnings.extend(warnings);
+                    match result {
+                        Ok(built) => {
+                            b.stats.push(built.stats);
+                            let mut next: Vec<Arc<Index>> = indexes.iter().cloned().collect();
+                            next.push(Arc::new(built.index));
+                            indexes = Arc::new(next);
+                        }
+                        Err(e) => b.warnings.push(e),
+                    }
+                    notify(Event::Indexed {
+                        entries: b.stats.iter().map(|s| s.entries).sum(),
+                        elapsed: b.started.elapsed(),
+                        stats: b.stats.clone(),
+                        warnings: b.warnings.clone(),
+                        pending: b.pending,
+                    });
+                    // Lo nuevo entra en la búsqueda que el usuario tiene en pantalla.
+                    newest = newest.or(last.take());
+                }
             }
         }
-        if let Some(sources) = reindex {
-            indexes = Arc::new(build(sources, &notify));
-            indexed = true;
-            newest = newest.or(last.take());
-        }
         if let Some(s) = newest {
-            if indexed {
+            // Sin ningún índice listo todavía, la búsqueda espera.
+            let waiting = indexes.is_empty() && batch.as_ref().is_none_or(|b| b.pending > 0);
+            if !waiting {
                 notify(Event::Results(run_search(&indexes, &s)));
             }
             last = Some(s);
@@ -113,38 +176,38 @@ fn run(rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
     }
 }
 
-fn build(sources: Vec<Source>, notify: &impl Fn(Event)) -> Vec<Index> {
-    notify(Event::Indexing {
-        labels: sources.iter().map(Source::label).collect(),
-    });
-    let start = Instant::now();
-    let warnings = Mutex::new(Vec::new());
-    let built: Vec<_> = sources
-        .par_iter()
-        .map(|s| s.build(&|w| warnings.lock().unwrap().push(w)))
-        .collect();
-    let mut warnings = warnings.into_inner().unwrap();
-    let mut indexes = Vec::new();
-    let mut stats = Vec::new();
-    for b in built {
-        match b {
-            Ok(b) => {
-                stats.push(b.stats);
-                indexes.push(b.index);
-            }
-            Err(e) => warnings.push(e),
-        }
+/// Indexa `source` en un hilo propio. Siempre llega un `Job::Built`, aunque
+/// el hilo no se pueda crear o la indexación falle de forma inesperada: si
+/// no, la cuenta de pendientes nunca llegaría a cero.
+fn spawn_build(source: Source, epoch: u64, tx: mpsc::Sender<Job>) {
+    let label = source.label();
+    let fail_tx = tx.clone();
+    let spawned = thread::Builder::new()
+        .name(format!("lince-indexa-{label}"))
+        .spawn(move || {
+            let label = source.label();
+            let warnings = Mutex::new(Vec::new());
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                source.build(&|w| warnings.lock().unwrap().push(w))
+            }))
+            .unwrap_or_else(|_| Err(format!("{label}: error interno al indexar")));
+            let warnings = warnings.into_inner().unwrap_or_default();
+            let _ = tx.send(Job::Built {
+                epoch,
+                result,
+                warnings,
+            });
+        });
+    if let Err(e) = spawned {
+        let _ = fail_tx.send(Job::Built {
+            epoch,
+            result: Err(format!("{label}: no se pudo crear un hilo: {e}")),
+            warnings: Vec::new(),
+        });
     }
-    notify(Event::Indexed {
-        entries: stats.iter().map(|s| s.entries).sum(),
-        elapsed: start.elapsed(),
-        stats,
-        warnings,
-    });
-    indexes
 }
 
-fn run_search(indexes: &Arc<Vec<Index>>, s: &SearchJob) -> Results {
+fn run_search(indexes: &Indexes, s: &SearchJob) -> Results {
     let start = Instant::now();
     let (hits, error) = match parse_query(&s.query) {
         Err(e) => (Vec::new(), Some(e.to_string())),

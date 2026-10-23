@@ -5,6 +5,7 @@ use std::ptr;
 
 use windows_sys::core::w;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
+use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
@@ -13,9 +14,13 @@ use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::Dialogs::{
     GetSaveFileNameW, OFN_EXPLORER, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
 };
-use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
+use windows_sys::Win32::UI::Shell::{
+    IsUserAnAdmin, SHBrowseForFolderW, SHGetPathFromIDListW, ShellExecuteW, BIF_EDITBOX,
+    BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowTextLengthW, GetWindowTextW, MessageBoxW, MESSAGEBOX_STYLE, SW_SHOWNORMAL,
+    GetWindowTextLengthW, GetWindowTextW, MessageBoxW, IDYES, MB_ICONQUESTION, MB_YESNO,
+    MESSAGEBOX_STYLE, SW_SHOWNORMAL,
 };
 
 /// Texto terminado en 0 para la API de Windows.
@@ -38,6 +43,50 @@ pub fn message_box(hwnd: HWND, text: &str, style: MESSAGEBOX_STYLE) {
     unsafe {
         MessageBoxW(hwnd, wide(text).as_ptr(), w!("Lince"), style);
     }
+}
+
+/// Pregunta sí/no; `true` si el usuario eligió «Sí».
+pub fn ask_yes_no(hwnd: HWND, text: &str) -> bool {
+    // SAFETY: textos terminados en 0 que viven durante la llamada.
+    unsafe {
+        MessageBoxW(
+            hwnd,
+            wide(text).as_ptr(),
+            w!("Lince"),
+            MB_YESNO | MB_ICONQUESTION,
+        ) == IDYES
+    }
+}
+
+/// Diálogo para elegir una carpeta. Tiene un campo de texto donde también se
+/// puede escribir una ruta de red (`\\servidor\carpeta`).
+pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
+    let title = wide(title);
+    let mut path = vec![0u16; 32_768];
+    // SAFETY: estructura inicializada a cero; el PIDL devuelto se libera con
+    // CoTaskMemFree y `path` tiene el tamaño máximo de una ruta.
+    unsafe {
+        let mut bi: BROWSEINFOW = std::mem::zeroed();
+        bi.hwndOwner = hwnd;
+        bi.lpszTitle = title.as_ptr();
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+        let pidl = SHBrowseForFolderW(&bi);
+        if pidl.is_null() {
+            return None;
+        }
+        let ok = SHGetPathFromIDListW(pidl, path.as_mut_ptr());
+        CoTaskMemFree(pidl as *const _);
+        if ok == 0 {
+            return None;
+        }
+    }
+    let len = path.iter().position(|&c| c == 0).unwrap_or(0);
+    (len > 0).then(|| PathBuf::from(String::from_utf16_lossy(&path[..len])))
+}
+
+/// Archivo con las carpetas agregadas: `%APPDATA%\Lince\carpetas.txt`.
+pub fn folders_file() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("Lince").join("carpetas.txt"))
 }
 
 fn shell_execute(hwnd: HWND, verb: &str, file: &str, params: Option<&str>) -> bool {

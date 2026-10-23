@@ -20,8 +20,12 @@ fn engine_with(image: &str) -> (Engine, mpsc::Receiver<Event>) {
 fn wait_indexed(rx: &mpsc::Receiver<Event>) -> usize {
     loop {
         match rx.recv_timeout(WAIT).expect("sin respuesta del motor") {
-            Event::Indexed { entries, .. } => return entries,
-            Event::Indexing { .. } => {}
+            Event::Indexed {
+                entries,
+                pending: 0,
+                ..
+            } => return entries,
+            Event::Indexed { .. } | Event::Indexing { .. } => {}
             Event::Results(_) => panic!("resultados antes de indexar"),
         }
     }
@@ -123,4 +127,38 @@ fn reindex_repeats_last_search() {
     wait_indexed(&rx);
     let r = next_results(&rx);
     assert_eq!((r.generation, r.hits.len()), (3, 1));
+}
+
+/// Con varias fuentes, cada una aparece en cuanto termina (la red puede
+/// tardar mucho más que los discos locales).
+#[test]
+fn each_source_appears_when_it_finishes() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("en-la-red.txt"), b"x").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let engine = Engine::start(move |ev| {
+        let _ = tx.send(ev);
+    });
+    engine.reindex(vec![
+        Source::Image(lince_testdata::image_file("basico")),
+        Source::Path(tmp.path().to_path_buf()),
+    ]);
+    let mut pendings = Vec::new();
+    let total = loop {
+        if let Event::Indexed {
+            entries, pending, ..
+        } = rx.recv_timeout(WAIT).expect("sin respuesta del motor")
+        {
+            pendings.push(pending);
+            if pending == 0 {
+                break entries;
+            }
+        }
+    };
+    assert_eq!(pendings, vec![1, 0]);
+    assert_eq!(total, 21 + 1);
+    engine.search(1, "en-la-red", SortKey::Name, false, None);
+    let r = next_results(&rx);
+    assert_eq!(r.hits.len(), 1);
+    assert_eq!(r.indexes.len(), 2);
 }

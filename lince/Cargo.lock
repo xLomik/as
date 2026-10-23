@@ -404,6 +404,7 @@ dependencies = [
  "lince-core",
  "lince-testdata",
  "rayon",
+ "tempfile",
  "windows-sys",
 ]
 
