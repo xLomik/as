@@ -3,11 +3,14 @@
 Busca archivos por nombre en todo el disco en milisegundos. Igual que
 UltraSearch o Everything, no recorre carpetas: **lee directamente la MFT de
 NTFS** (la tabla con un registro por cada archivo del volumen), con lecturas
-en paralelo ajustadas al tipo de disco y búsqueda paralela con SIMD.
+en paralelo ajustadas al tipo de disco y búsqueda paralela con SIMD. También
+busca **dentro** de Word, Excel, PDF y archivos de texto.
 
-> Estado: **Fase 1** (núcleo, ventana y línea de comandos). Próximas fases:
-> búsqueda en contenido, actualización en tiempo real (USN Journal) y servicio
-> para empresa sin UAC. Diseño: `docs/superpowers/specs/2026-10-22-lince-design.md`.
+> Estado: núcleo, ventana, línea de comandos, unidades de red, clic derecho
+> del Explorador y búsqueda en contenido (primera entrega). Próximas fases:
+> más formatos (filtros de Windows: .ppt, .rtf, .msg...), actualización en
+> tiempo real (USN Journal) y servicio para empresa sin UAC. Diseño:
+> `docs/superpowers/specs/2026-10-22-lince-design.md`.
 
 ## Programa con ventana: `Lince.exe`
 
@@ -29,6 +32,33 @@ funciona igual pero recorre las carpetas (más lento).
 
 La caja de búsqueda acepta la misma sintaxis que la versión de consola (tabla
 de abajo): `*.pdf`, `size:>10mb`, `dm:2026-10`, `ext:dwg;dxf`...
+
+### Buscar dentro de los archivos
+
+La **segunda caja** («Texto dentro del archivo») busca dentro de los
+documentos que cumplen la primera. Lee:
+
+| Tipo | Archivos |
+|---|---|
+| Word | `.docx`, `.docm`, `.dotx` y los viejos `.doc`, `.dot` (97–2003) |
+| Excel | `.xlsx`, `.xlsm`, `.xlsb` y los viejos `.xls`; los números se encuentran con coma o punto (`4512,75` o `4512.75`) |
+| PDF | `.pdf` con texto (no los escaneados como imagen) |
+| Texto | `.txt`, `.csv`, `.log`, `.xml`, `.html`, `.json`, `.ini`, código, programas CNC (`.nc`, `.tap`, `.gcode`...) y `.dxf`; en UTF-8, UTF-16 o ANSI |
+| También | PowerPoint `.pptx` y OpenDocument (`.odt`, `.ods`, `.odp`) |
+
+- No distingue mayúsculas y una frase se encuentra aunque el documento la
+  parta en dos líneas.
+- Los resultados van apareciendo mientras lee; la barra de abajo dice
+  cuántos archivos lleva. Escribir otra cosa (o **Esc** en la caja) la
+  detiene.
+- Leer el contenido es mucho más lento que buscar por nombre: acote con la
+  primera caja (`ext:pdf`, `dm:2026`, `path:Proyectos`) o abra Lince en la
+  carpeta con el **clic derecho** del Explorador. Los archivos se leen del
+  más pequeño al más grande, para que los primeros resultados salgan antes.
+- En la primera caja también se puede escribir `contenido:"orden de compra"`
+  (o `content:`), igual que en la consola.
+- Archivos protegidos con contraseña o dañados se saltan (se cuentan en la
+  barra como «no se pudieron leer»).
 
 ### Buscar solo en una carpeta (clic derecho del Explorador)
 
@@ -107,6 +137,7 @@ lince-cli --path E:\ ext:jpg
 | `file:`, `folder:` | solo archivos / solo carpetas |
 | `path:proyectos\2026` | la ruta completa contiene ese texto |
 | `regex:^IMG_\d+\.jpg$` | expresión regular sobre el nombre |
+| `contenido:"orden de compra"` | el archivo contiene el texto (Word, Excel, PDF, texto); también `content:` |
 
 ### Opciones
 

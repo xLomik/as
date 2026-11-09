@@ -123,6 +123,21 @@ jobs:
           if (-not ($out -match "marcador-lince-uno.txt")) { throw "el recorrido no encontro el archivo: $out" }
           Write-Host $out
 
+      - name: Buscar dentro de Word, Excel, PDF y texto
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "target\release\lince-cli.exe"
+          $docs = Resolve-Path "fixtures\contenido"
+          $out = & $exe --stats --path $docs 'contenido:"orden de compra 4512"'
+          Write-Host ($out -join "`n")
+          if ($out.Count -ne 8) { throw "se esperaban 8 documentos, salieron $($out.Count)" }
+          foreach ($f in "documento-97.doc", "documento.docx", "documento.pdf", "navegador.pdf", "texto-utf16.txt", "texto-ansi.txt") {
+            if (-not ($out -match [regex]::Escape($f))) { throw "falta $f" }
+          }
+          $out = & $exe --path $docs "ext:xls;xlsx;ods" "content:4512,75"
+          if ($out.Count -ne 3) { throw "hojas: $out" }
+          Write-Host "OK: contenido de .doc/.docx/.odt/.pdf/.txt y .xls/.xlsx/.ods"
+
       - name: Unidades de red (SMB) y carpetas UNC
         shell: pwsh
         run: |

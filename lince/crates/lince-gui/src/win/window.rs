@@ -31,7 +31,7 @@ use windows_sys::Win32::UI::Controls::{
     LVCF_WIDTH, LVCOLUMNW, LVIF_IMAGE, LVIF_TEXT, LVIS_FOCUSED, LVIS_SELECTED, LVITEMW,
     LVM_ENSUREVISIBLE, LVM_GETHEADER, LVM_GETITEMCOUNT, LVM_GETNEXTITEM, LVM_INSERTCOLUMNW,
     LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST, LVM_SETITEMCOUNT, LVM_SETITEMSTATE,
-    LVNI_SELECTED, LVN_COLUMNCLICK, LVN_GETDISPINFOW, LVN_KEYDOWN, LVSIL_SMALL,
+    LVNI_SELECTED, LVN_COLUMNCLICK, LVN_GETDISPINFOW, LVN_KEYDOWN, LVSICF_NOSCROLL, LVSIL_SMALL,
     LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_HEADERDRAGDROP, LVS_OWNERDATA, LVS_REPORT,
     LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, NMHDR, NMLISTVIEW, NMLVDISPINFOW, NMLVKEYDOWN,
     NM_DBLCLK, NM_RCLICK, SBARS_SIZEGRIP, SB_SETPARTS, SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
@@ -73,6 +73,7 @@ const ID_COMBO: u16 = 102;
 const ID_EXPORT: u16 = 103;
 const ID_LIST: u16 = 104;
 const ID_STATUS: u16 = 105;
+const ID_CONTENT: u16 = 106;
 
 pub const IDM_OPEN: u16 = 201;
 pub const IDM_FOLDER: u16 = 202;
@@ -90,6 +91,7 @@ pub const IDM_EXPLORER_MENU: u16 = 212;
 const TIMER_SEARCH: usize = 1;
 /// Espera tras la última tecla antes de buscar.
 const DEBOUNCE_MS: u32 = 90;
+const CONTENT_DEBOUNCE_MS: u32 = 400;
 
 const HELP: &str = "Escriba en la caja de arriba; los resultados aparecen al instante.\n\n\
 texto\tel nombre contiene «texto»\n\
@@ -101,13 +103,20 @@ size:>10mb\tpor tamaño (también <, 1kb..2mb)\n\
 dm:2026-10\tmodificado en ese periodo (dc: creado)\n\
 file:  folder:\tsolo archivos / solo carpetas\n\
 path:texto\tla ruta completa contiene «texto»\n\
-regex:expr\texpresión regular\n\n\
+regex:expr\texpresión regular\n\
+contenido:texto\tel archivo contiene «texto»\n\n\
+La segunda caja busca dentro de los archivos (Word .docx y .doc, Excel .xlsx \
+y .xls, PDF, OpenDocument y texto) entre los que cumplen la primera. Mejor \
+acotar con la primera caja (p. ej. ext:pdf) o con el clic derecho del \
+Explorador: leer todo un disco tarda.\n\n\
 Las unidades de red se buscan solas. Otras carpetas de la red: menú \
 Buscar en → Agregar carpeta o unidad de red.\n\n\
 Para buscar solo en una carpeta: en el Explorador, clic derecho → «Buscar \
 aquí con Lince» (se activa en el menú Buscar en).";
 
 const CUE: &str = "Escriba para buscar…   ej.: informe    *.pdf    size:>10mb    dm:2026-10";
+const CONTENT_CUE: &str =
+    "Texto dentro del archivo (Word, Excel, PDF, txt…)   ej.: orden de compra 4512";
 const ALL_VOLUMES: &str = "Todas las unidades";
 
 /// Datos que se pasan al crear la ventana.
@@ -124,6 +133,8 @@ pub const CLASS_NAME: PCWSTR = w!("LinceVentanaPrincipal");
 struct App {
     hwnd: HWND,
     edit: HWND,
+    /// Texto a buscar dentro de los archivos.
+    content: HWND,
     combo: HWND,
     export: HWND,
     list: HWND,
@@ -219,6 +230,14 @@ impl App {
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL as u32,
             ID_EDIT,
         );
+        let content = create_control(
+            hwnd,
+            WS_EX_CLIENTEDGE,
+            w!("EDIT"),
+            "",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            ID_CONTENT,
+        );
         let combo = create_control(
             hwnd,
             0,
@@ -274,6 +293,7 @@ impl App {
         let app = App {
             hwnd,
             edit,
+            content,
             combo,
             export,
             list,
@@ -301,7 +321,11 @@ impl App {
     unsafe fn setup_controls(&self) {
         let cue = wide(CUE);
         send(self.edit, EM_SETCUEBANNER, 1, cue.as_ptr() as isize);
-        SetWindowSubclass(self.edit, Some(edit_proc), 1, self.list as usize);
+        let cue = wide(CONTENT_CUE);
+        send(self.content, EM_SETCUEBANNER, 1, cue.as_ptr() as isize);
+        for e in [self.edit, self.content] {
+            SetWindowSubclass(e, Some(edit_proc), 1, self.list as usize);
+        }
 
         let all = wide(ALL_VOLUMES);
         send(self.combo, CB_ADDSTRING, 0, all.as_ptr() as isize);
@@ -441,6 +465,7 @@ impl App {
             send(h, WM_SETFONT, normal as usize, 1);
         }
         send(self.edit, WM_SETFONT, big as usize, 1);
+        send(self.content, WM_SETFONT, big as usize, 1);
         let (old_a, old_b) = self.fonts.replace((normal, big));
         if !old_a.is_null() {
             DeleteObject(old_a as HGDIOBJ);
@@ -480,7 +505,8 @@ impl App {
             (h - self.scale(6)) as isize,
         );
         MoveWindow(self.export, 3 * pad + edit_w + combo_w, pad, btn_w, h, 1);
-        let top = 2 * pad + h;
+        MoveWindow(self.content, pad, 2 * pad + h, edit_w, h, 1);
+        let top = 3 * pad + 2 * h;
         MoveWindow(self.list, 0, top, w, (rc.bottom - top - status_h).max(0), 1);
         let parts = [(w - self.scale(430)).max(self.scale(200)), -1];
         send(self.status, SB_SETPARTS, 2, parts.as_ptr() as isize);
@@ -499,6 +525,7 @@ impl App {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
         let text = window_text(self.edit);
+        let content = window_text(self.content);
         let (col, desc) = self.sort.get();
         let sel = send(self.combo, CB_GETCURSEL, 0, 0);
         let volume = if sel > 0 {
@@ -507,13 +534,17 @@ impl App {
             None
         };
         self.engine
-            .search(generation, &text, col.sort_key(), desc, volume);
+            .search_content(generation, &text, &content, col.sort_key(), desc, volume);
     }
 
     unsafe fn on_command(&self, id: u16, code: u16) {
         match id {
             ID_EDIT if u32::from(code) == EN_CHANGE => {
                 SetTimer(self.hwnd, TIMER_SEARCH, DEBOUNCE_MS, None);
+            }
+            // Leer archivos cuesta: se espera a que deje de escribir.
+            ID_CONTENT if u32::from(code) == EN_CHANGE => {
+                SetTimer(self.hwnd, TIMER_SEARCH, CONTENT_DEBOUNCE_MS, None);
             }
             ID_COMBO if u32::from(code) == CBN_SELCHANGE => self.request_search(),
             ID_EXPORT | IDM_EXPORT => self.export(),
@@ -542,12 +573,12 @@ impl App {
                     self.request_search();
                 }
             }
-            // Esc: borra la búsqueda.
-            x if i32::from(x) == IDCANCEL
-                && GetFocus() == self.edit
-                && !window_text(self.edit).is_empty() =>
-            {
-                SetWindowTextW(self.edit, w!(""));
+            // Esc: borra la caja (y detiene la búsqueda en el contenido).
+            x if i32::from(x) == IDCANCEL => {
+                let focus = GetFocus();
+                if (focus == self.edit || focus == self.content) && !window_text(focus).is_empty() {
+                    SetWindowTextW(focus, w!(""));
+                }
             }
             _ => {}
         }
@@ -712,28 +743,28 @@ impl App {
                 if r.generation < self.shown.get() {
                     return;
                 }
+                // Avance de la misma búsqueda en contenido: no se pierde la
+                // selección ni la posición de la lista.
+                let update = r.generation == self.shown.get() && r.content.is_some();
                 self.shown.set(r.generation);
                 let n = r.hits.len();
-                let status = match &r.error {
-                    Some(e) => format!("⚠ {e}"),
-                    None => format!(
-                        "{} resultados ({} ms)",
-                        thousands(n as u64),
-                        r.elapsed.as_millis()
-                    ),
-                };
+                let status = results_status(&r);
                 *self.results.borrow_mut() = Some(Rc::new(r));
-                send(self.list, LVM_SETITEMCOUNT, n, 0);
-                let mut none: LVITEMW = std::mem::zeroed();
-                none.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
-                send(
-                    self.list,
-                    LVM_SETITEMSTATE,
-                    usize::MAX,
-                    &none as *const LVITEMW as isize,
-                );
-                if n > 0 {
-                    send(self.list, LVM_ENSUREVISIBLE, 0, 0);
+                if update {
+                    send(self.list, LVM_SETITEMCOUNT, n, LVSICF_NOSCROLL as isize);
+                } else {
+                    send(self.list, LVM_SETITEMCOUNT, n, 0);
+                    let mut none: LVITEMW = std::mem::zeroed();
+                    none.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+                    send(
+                        self.list,
+                        LVM_SETITEMSTATE,
+                        usize::MAX,
+                        &none as *const LVITEMW as isize,
+                    );
+                    if n > 0 {
+                        send(self.list, LVM_ENSUREVISIBLE, 0, 0);
+                    }
                 }
                 InvalidateRect(self.list, ptr::null(), 0);
                 self.set_status(0, &status);
@@ -1070,6 +1101,36 @@ impl App {
             ),
         }
     }
+}
+
+/// Texto de la barra de estado para unos resultados.
+fn results_status(r: &Results) -> String {
+    let n = thousands(r.hits.len() as u64);
+    if let Some(e) = &r.error {
+        return format!("⚠ {e}");
+    }
+    let Some(c) = r.content else {
+        return format!("{n} resultados ({} ms)", r.elapsed.as_millis());
+    };
+    if !c.finished {
+        return format!(
+            "Buscando dentro de los archivos… {} de {} · {n} encontrados",
+            thousands(c.done as u64),
+            thousands(c.total as u64)
+        );
+    }
+    let mut text = format!(
+        "{n} resultados · {} archivos revisados en {}",
+        thousands(c.total as u64),
+        seconds(r.elapsed)
+    );
+    if c.unreadable > 0 {
+        text.push_str(&format!(
+            " ({} no se pudieron leer)",
+            thousands(c.unreadable as u64)
+        ));
+    }
+    text
 }
 
 /// Flecha abajo en la caja de búsqueda: pasa a la lista con el primer

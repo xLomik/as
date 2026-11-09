@@ -5,11 +5,16 @@
 //! entra en las búsquedas en cuanto termina: un disco local está listo en
 //! segundos aunque una carpeta de red tarde minutos. De varias búsquedas
 //! pendientes solo se hace la última.
+//!
+//! Si se busca dentro de los archivos, primero se filtra por nombre (al
+//! instante) y luego otro hilo lee los candidatos y manda resultados
+//! parciales; una búsqueda nueva lo cancela.
 
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use lince_core::content::{content_candidates, content_threads, needle, ContentScan};
 use lince_core::{parse_query, search, sort_hits, BuildStats, Built, Hit, Index, SortKey, Source};
 
 /// Índices con los que se calculó un resultado.
@@ -23,6 +28,18 @@ pub struct Results {
     pub hits: Vec<Hit>,
     pub elapsed: Duration,
     pub error: Option<String>,
+    /// Avance de la búsqueda dentro de los archivos (`None`: solo nombres).
+    pub content: Option<ContentStatus>,
+}
+
+/// Cuánto lleva revisado la búsqueda dentro de los archivos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentStatus {
+    pub done: usize,
+    pub total: usize,
+    /// Archivos que no se pudieron leer (dañados, protegidos, sin permiso).
+    pub unreadable: usize,
+    pub finished: bool,
 }
 
 pub enum Event {
@@ -45,6 +62,8 @@ pub enum Event {
 struct SearchJob {
     generation: u64,
     query: String,
+    /// Texto a buscar dentro de los archivos (caja aparte de la ventana).
+    content: String,
     key: SortKey,
     desc: bool,
     volume: Option<String>,
@@ -58,6 +77,16 @@ enum Job {
         epoch: u64,
         result: Result<Built, String>,
         warnings: Vec<String>,
+    },
+    /// Avance de una búsqueda dentro de los archivos.
+    Content {
+        generation: u64,
+        indexes: Indexes,
+        hits: Vec<Hit>,
+        status: ContentStatus,
+        started: Instant,
+        key: SortKey,
+        desc: bool,
     },
 }
 
@@ -89,9 +118,24 @@ impl Engine {
         desc: bool,
         volume: Option<String>,
     ) {
+        self.search_content(generation, query, "", key, desc, volume);
+    }
+
+    /// Como [`Engine::search`], y además los archivos deben contener
+    /// `content` (vacío = no se mira el contenido).
+    pub fn search_content(
+        &self,
+        generation: u64,
+        query: &str,
+        content: &str,
+        key: SortKey,
+        desc: bool,
+        volume: Option<String>,
+    ) {
         let _ = self.tx.send(Job::Search(SearchJob {
             generation,
             query: query.to_string(),
+            content: content.to_string(),
             key,
             desc,
             volume,
@@ -112,12 +156,17 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
     let mut indexes: Indexes = Arc::new(Vec::new());
     let mut batch: Option<Batch> = None;
     let mut last: Option<SearchJob> = None;
+    // Búsqueda en contenido en marcha y su número de búsqueda.
+    let mut scan: Option<(u64, Arc<ContentScan>)> = None;
     while let Ok(first) = rx.recv() {
         let mut newest = None;
         for job in std::iter::once(first).chain(rx.try_iter()) {
             match job {
                 Job::Search(s) => newest = Some(s),
                 Job::Reindex(sources) => {
+                    if let Some((_, old)) = scan.take() {
+                        old.cancel();
+                    }
                     let epoch = batch.as_ref().map_or(1, |b| b.epoch + 1);
                     notify(Event::Indexing {
                         labels: sources.iter().map(Source::label).collect(),
@@ -163,17 +212,133 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                     // Lo nuevo entra en la búsqueda que el usuario tiene en pantalla.
                     newest = newest.or(last.take());
                 }
+                Job::Content {
+                    generation,
+                    indexes,
+                    mut hits,
+                    status,
+                    started,
+                    key,
+                    desc,
+                } => {
+                    // De una búsqueda ya reemplazada: no se muestra.
+                    if scan.as_ref().is_none_or(|(g, _)| *g != generation) {
+                        continue;
+                    }
+                    sort_hits(&indexes, &mut hits, key, desc);
+                    notify(Event::Results(Results {
+                        generation,
+                        indexes,
+                        hits,
+                        elapsed: started.elapsed(),
+                        error: None,
+                        content: Some(status),
+                    }));
+                }
             }
         }
         if let Some(s) = newest {
+            if let Some((_, old)) = scan.take() {
+                old.cancel();
+            }
             // Sin ningún índice listo todavía, la búsqueda espera.
             let waiting = indexes.is_empty() && batch.as_ref().is_none_or(|b| b.pending > 0);
             if !waiting {
-                notify(Event::Results(run_search(&indexes, &s)));
+                let started = Instant::now();
+                let (results, needles) = run_search(&indexes, &s);
+                if needles.is_empty() || results.error.is_some() {
+                    notify(Event::Results(results));
+                } else {
+                    let candidates = content_candidates(&indexes, &results.hits);
+                    notify(Event::Results(Results {
+                        hits: Vec::new(),
+                        content: Some(ContentStatus {
+                            done: 0,
+                            total: candidates.len(),
+                            unreadable: 0,
+                            finished: false,
+                        }),
+                        ..results
+                    }));
+                    let new = Arc::new(ContentScan::new());
+                    scan = Some((s.generation, Arc::clone(&new)));
+                    spawn_content(ContentJob {
+                        generation: s.generation,
+                        indexes: Arc::clone(&indexes),
+                        candidates,
+                        needles,
+                        scan: new,
+                        started,
+                        key: s.key,
+                        desc: s.desc,
+                        tx: tx.clone(),
+                    });
+                }
             }
             last = Some(s);
         }
     }
+}
+
+/// Lo que necesita el hilo que revisa el contenido.
+struct ContentJob {
+    generation: u64,
+    indexes: Indexes,
+    candidates: Vec<Hit>,
+    needles: Vec<Vec<u8>>,
+    scan: Arc<ContentScan>,
+    started: Instant,
+    key: SortKey,
+    desc: bool,
+    tx: mpsc::Sender<Job>,
+}
+
+/// Cada cuánto se mandan resultados parciales.
+const CONTENT_TICK: Duration = Duration::from_millis(250);
+
+/// Revisa el contenido en otro hilo y manda el avance al motor. Cancelado,
+/// no manda nada más.
+fn spawn_content(job: ContentJob) {
+    let _ = thread::Builder::new()
+        .name("lince-contenido".into())
+        .spawn(move || {
+            let total = job.candidates.len();
+            let send = |finished: bool| {
+                let _ = job.tx.send(Job::Content {
+                    generation: job.generation,
+                    indexes: Arc::clone(&job.indexes),
+                    hits: job.scan.found(),
+                    status: ContentStatus {
+                        done: job.scan.done(),
+                        total,
+                        unreadable: job.scan.unreadable(),
+                        finished,
+                    },
+                    started: job.started,
+                    key: job.key,
+                    desc: job.desc,
+                });
+            };
+            thread::scope(|scope| {
+                let runner = scope.spawn(|| {
+                    job.scan.run(
+                        &job.indexes,
+                        &job.candidates,
+                        &job.needles,
+                        content_threads(),
+                    )
+                });
+                while !runner.is_finished() && !job.scan.is_cancelled() {
+                    thread::sleep(CONTENT_TICK);
+                    if !runner.is_finished() && !job.scan.is_cancelled() {
+                        send(false);
+                    }
+                }
+            });
+            if !job.scan.is_cancelled() {
+                send(true);
+            }
+        });
 }
 
 /// Indexa `source` en un hilo propio. Siempre llega un `Job::Built`, aunque
@@ -207,11 +372,19 @@ fn spawn_build(source: Source, epoch: u64, tx: mpsc::Sender<Job>) {
     }
 }
 
-fn run_search(indexes: &Indexes, s: &SearchJob) -> Results {
+/// Búsqueda por nombre; devuelve además los textos a buscar dentro de los
+/// archivos (de la consulta y de la caja de contenido).
+fn run_search(indexes: &Indexes, s: &SearchJob) -> (Results, Vec<Vec<u8>>) {
     let start = Instant::now();
+    let mut needles = Vec::new();
     let (hits, error) = match parse_query(&s.query) {
         Err(e) => (Vec::new(), Some(e.to_string())),
         Ok(q) => {
+            needles = q.content.clone();
+            let extra = needle(&s.content);
+            if !extra.is_empty() {
+                needles.push(extra);
+            }
             let mut hits: Vec<Hit> = indexes
                 .iter()
                 .enumerate()
@@ -226,11 +399,13 @@ fn run_search(indexes: &Indexes, s: &SearchJob) -> Results {
             (hits, None)
         }
     };
-    Results {
+    let results = Results {
         generation: s.generation,
         indexes: Arc::clone(indexes),
         hits,
         elapsed: start.elapsed(),
         error,
-    }
+        content: None,
+    };
+    (results, needles)
 }

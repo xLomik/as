@@ -162,3 +162,93 @@ fn each_source_appears_when_it_finishes() {
     assert_eq!(r.hits.len(), 1);
     assert_eq!(r.indexes.len(), 2);
 }
+
+mod content {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn engine_on_documents() -> (Engine, mpsc::Receiver<Event>) {
+        let (tx, rx) = mpsc::channel();
+        let engine = Engine::start(move |ev| {
+            let _ = tx.send(ev);
+        });
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/contenido");
+        engine.reindex(vec![Source::Path(dir)]);
+        wait_indexed(&rx);
+        (engine, rx)
+    }
+
+    /// Resultados hasta que termina la revisión del contenido.
+    fn until_finished(rx: &mpsc::Receiver<Event>, generation: u64) -> Results {
+        loop {
+            let r = next_results(rx);
+            if r.generation == generation && r.content.as_ref().is_some_and(|c| c.finished) {
+                return r;
+            }
+        }
+    }
+
+    fn names(r: &Results) -> Vec<String> {
+        let mut v: Vec<String> = r
+            .hits
+            .iter()
+            .map(|&h| cell_text(&r.indexes, h, Column::Name))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn finds_inside_files_with_progress() {
+        let (engine, rx) = engine_on_documents();
+        engine.search_content(1, "", "LINCE-DOCX", SortKey::Name, false, None);
+        let first = next_results(&rx);
+        assert_eq!(first.generation, 1);
+        assert_eq!(first.content.as_ref().unwrap().total, 11);
+        let r = until_finished(&rx, 1);
+        assert_eq!(names(&r), ["documento.docx"]);
+        let c = r.content.unwrap();
+        assert_eq!((c.done, c.total, c.unreadable), (11, 11, 0));
+    }
+
+    #[test]
+    fn name_filters_and_content_box_combine() {
+        let (engine, rx) = engine_on_documents();
+        engine.search_content(1, "ext:pdf", "orden de\ncompra", SortKey::Name, false, None);
+        let r = until_finished(&rx, 1);
+        assert_eq!(names(&r), ["documento.pdf", "navegador.pdf"]);
+        assert_eq!(r.content.unwrap().total, 2);
+        // Lo mismo escrito en la caja de búsqueda.
+        engine.search(
+            2,
+            r#"ext:pdf contenido:"orden de compra""#,
+            SortKey::Name,
+            false,
+            None,
+        );
+        assert_eq!(
+            names(&until_finished(&rx, 2)),
+            ["documento.pdf", "navegador.pdf"]
+        );
+    }
+
+    #[test]
+    fn a_new_search_replaces_the_content_scan() {
+        let (engine, rx) = engine_on_documents();
+        engine.search_content(1, "", "señalización", SortKey::Name, false, None);
+        engine.search(2, "hoja", SortKey::Name, false, None);
+        let mut got_2 = false;
+        while let Ok(ev) = rx.recv_timeout(Duration::from_secs(2)) {
+            if let Event::Results(r) = ev {
+                if r.generation == 2 {
+                    got_2 = true;
+                    assert!(r.content.is_none());
+                    assert_eq!(names(&r), ["hoja-97.xls", "hoja.ods", "hoja.xlsx"]);
+                } else {
+                    assert!(!got_2, "llegó la búsqueda 1 después de la 2");
+                }
+            }
+        }
+        assert!(got_2);
+    }
+}
