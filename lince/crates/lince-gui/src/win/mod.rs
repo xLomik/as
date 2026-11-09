@@ -1,14 +1,15 @@
 //! Arranque de la ventana en Windows.
 
 mod dialog;
+mod explorer_menu;
 mod util;
 mod window;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 use lince_core::Source;
-use lince_gui::{parse_args, relaunch_params};
+use lince_gui::{drive_root, parse_args, relaunch_params, MenuAction};
 use windows_sys::Win32::Graphics::Gdi::{UpdateWindow, COLOR_BTNFACE, HBRUSH};
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -20,18 +21,19 @@ use windows_sys::Win32::UI::Controls::{
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_F5;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, CreateWindowExW,
-    DispatchMessageW, GetMessageW, GetSystemMetrics, IsDialogMessageW, LoadCursorW, LoadIconW,
-    LoadImageW, RegisterClassExW, ShowWindow, TranslateAcceleratorW, TranslateMessage, ACCEL,
-    CW_USEDEFAULT, FCONTROL, FVIRTKEY, HICON, HMENU, IDC_ARROW, IMAGE_ICON, LR_DEFAULTCOLOR,
-    MB_ICONERROR, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT,
-    WNDCLASSEXW, WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
+    AppendMenuW, CheckMenuItem, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu,
+    CreateWindowExW, DispatchMessageW, GetMessageW, GetSystemMetrics, IsDialogMessageW,
+    LoadCursorW, LoadIconW, LoadImageW, RegisterClassExW, ShowWindow, TranslateAcceleratorW,
+    TranslateMessage, ACCEL, CW_USEDEFAULT, FCONTROL, FVIRTKEY, HICON, HMENU, IDC_ARROW,
+    IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MF_BYCOMMAND, MF_CHECKED, MF_POPUP, MF_SEPARATOR,
+    MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT, WNDCLASSEXW, WS_CLIPCHILDREN,
+    WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 
 use util::{is_elevated, message_box, relaunch_elevated, wide};
 use window::{
-    Config, CLASS_NAME, IDM_ADD_FOLDER, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPORT, IDM_FOCUS_SEARCH,
-    IDM_HELP, IDM_REFRESH,
+    Config, CLASS_NAME, IDM_ADD_FOLDER, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU, IDM_EXPORT,
+    IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH,
 };
 
 /// Identificador del icono en `res/lince.rc`.
@@ -41,24 +43,69 @@ pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&args);
 
+    // Para instaladores y scripts: sin ventana, el código de salida dice si
+    // funcionó.
+    if let Some(action) = args.menu {
+        let done = match action {
+            MenuAction::Install => {
+                std::env::current_exe().and_then(|exe| explorer_menu::install(&exe))
+            }
+            MenuAction::Remove => explorer_menu::uninstall(),
+        };
+        std::process::exit(if done.is_ok() { 0 } else { 1 });
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        explorer_menu::repair(&exe);
+    }
+
+    // Clic derecho del Explorador: solo esa carpeta.
+    let folder_source = match &args.folder {
+        None => None,
+        Some(f) if f.is_dir() => Some(folder_source(f)),
+        Some(f) => {
+            message_box(
+                ptr::null_mut(),
+                &format!(
+                    "Lince no puede buscar en «{}»: solo en carpetas del disco o de la red.",
+                    f.display()
+                ),
+                MB_ICONERROR,
+            );
+            return;
+        }
+    };
+
     // Como UltraSearch: se piden permisos de administrador para leer la MFT.
-    // La copia elevada no ve las unidades de red que el usuario conectó sin
-    // elevar (Windows las separa por sesión), así que se le pasan sus rutas
-    // reales (\\servidor\recurso). Si el usuario niega el permiso, se sigue
-    // sin él (recorrido de carpetas).
-    if !args.explicit_sources && !args.relaunched && !is_elevated() {
-        let network: Vec<PathBuf> = lince_core::remote_drives()
-            .into_iter()
-            .filter_map(|d| d.unc.map(PathBuf::from))
-            .collect();
-        if relaunch_elevated(&relaunch_params(&network)) {
+    // Una carpeta suelta se recorre y no los necesita. La copia elevada no
+    // ve las unidades de red que el usuario conectó sin elevar (Windows las
+    // separa por sesión), así que se le pasan sus rutas reales
+    // (\\servidor\recurso). Si el usuario niega el permiso, se sigue sin él
+    // (recorrido de carpetas).
+    let wants_admin = match &folder_source {
+        Some(s) => matches!(s, Source::Volume(_)),
+        None => !args.explicit_sources,
+    };
+    if wants_admin && !args.relaunched && !is_elevated() {
+        let network: Vec<PathBuf> = if args.folder.is_some() {
+            Vec::new()
+        } else {
+            lince_core::remote_drives()
+                .into_iter()
+                .filter_map(|d| d.unc.map(PathBuf::from))
+                .collect()
+        };
+        if relaunch_elevated(&relaunch_params(&network, args.folder.as_deref())) {
             return;
         }
     }
-    let (base_sources, folders_file) = if args.explicit_sources {
-        (args.sources, None)
-    } else {
-        (base_sources(&args.extra), util::folders_file())
+    let title = match &args.folder {
+        Some(f) => format!("Lince — {}", f.display()),
+        None => "Lince — buscador de archivos".to_string(),
+    };
+    let (base_sources, folders_file) = match folder_source {
+        Some(s) => (vec![s], None),
+        None if args.explicit_sources => (args.sources, None),
+        None => (base_sources(&args.extra), util::folders_file()),
     };
 
     // SAFETY: llamadas de inicialización con estructuras válidas; el bucle de
@@ -97,7 +144,7 @@ pub fn run() {
         };
         RegisterClassExW(&wc);
 
-        let title = wide("Lince — buscador de archivos");
+        let title = wide(&title);
         let cfg = Box::into_raw(Box::new(Config {
             base_sources,
             folders_file,
@@ -167,6 +214,15 @@ pub fn run() {
     }
 }
 
+/// La raíz de un disco NTFS se lee por la MFT (al instante, con permisos de
+/// administrador); cualquier otra carpeta se recorre, sin pedirlos.
+fn folder_source(folder: &Path) -> Source {
+    match drive_root(folder) {
+        Some(d) if lince_core::ntfs_volumes().contains(&d) => Source::Volume(d),
+        _ => Source::Path(folder.to_path_buf()),
+    }
+}
+
 /// Volúmenes NTFS y unidades de red visibles, más las rutas de red que pasó
 /// la copia sin elevar (sin repetir las que este proceso ya ve con letra).
 fn base_sources(extra: &[PathBuf]) -> Vec<Source> {
@@ -214,6 +270,19 @@ fn main_menu() -> HMENU {
             "&Agregar carpeta o unidad de red…",
         );
         item(search_in, IDM_CLEAR_FOLDERS, "&Quitar carpetas agregadas…");
+        item(search_in, 0, "");
+        item(
+            search_in,
+            IDM_EXPLORER_MENU,
+            "«Buscar aquí con Lince» en el &clic derecho del Explorador",
+        );
+        if explorer_menu::installed_exe().is_some() {
+            CheckMenuItem(
+                search_in,
+                u32::from(IDM_EXPLORER_MENU),
+                MF_BYCOMMAND | MF_CHECKED,
+            );
+        }
         item(search_in, 0, "");
         item(search_in, IDM_REFRESH, "&Volver a leer los discos\tF5");
         let help = CreatePopupMenu();

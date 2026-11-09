@@ -45,20 +45,21 @@ use windows_sys::Win32::UI::Shell::{
     SHGFI_SYSICONINDEX, SHGFI_USEFILEATTRIBUTES,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    GetClientRect, GetCursorPos, GetWindowLongPtrW, GetWindowRect, KillTimer, MoveWindow,
-    PostMessageW, PostQuitMessage, SendMessageW, SetMenuDefaultItem, SetTimer, SetWindowLongPtrW,
-    SetWindowPos, SetWindowTextW, TrackPopupMenu, BS_PUSHBUTTON, CBN_SELCHANGE, CBS_DROPDOWNLIST,
-    CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CB_SETITEMHEIGHT, CREATESTRUCTW,
-    EN_CHANGE, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDCANCEL, IDOK, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_ICONWARNING, MF_SEPARATOR, MF_STRING, MINMAXINFO, NONCLIENTMETRICSW,
-    SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, WM_APP, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO,
-    WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_TIMER, WS_CHILD, WS_EX_CLIENTEDGE,
-    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    AppendMenuW, CheckMenuItem, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+    DestroyWindow, GetClientRect, GetCursorPos, GetMenu, GetWindowLongPtrW, GetWindowRect,
+    KillTimer, MoveWindow, PostMessageW, PostQuitMessage, SendMessageW, SetMenuDefaultItem,
+    SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, TrackPopupMenu, BS_PUSHBUTTON,
+    CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL,
+    CB_SETITEMHEIGHT, CREATESTRUCTW, EN_CHANGE, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDCANCEL,
+    IDOK, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MF_BYCOMMAND, MF_CHECKED, MF_SEPARATOR,
+    MF_STRING, MF_UNCHECKED, MINMAXINFO, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_COMMAND,
+    WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY,
+    WM_SETFONT, WM_SIZE, WM_TIMER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 use super::dialog::ask_path;
+use super::explorer_menu;
 use super::util::{
     ask_yes_no, message_box, open_path, save_csv_dialog, set_clipboard, show_in_folder, wide,
     window_text,
@@ -84,6 +85,7 @@ pub const IDM_ADD_FOLDER: u16 = 208;
 pub const IDM_CLEAR_FOLDERS: u16 = 209;
 pub const IDM_EXIT: u16 = 210;
 pub const IDM_HELP: u16 = 211;
+pub const IDM_EXPLORER_MENU: u16 = 212;
 
 const TIMER_SEARCH: usize = 1;
 /// Espera tras la última tecla antes de buscar.
@@ -101,7 +103,9 @@ file:  folder:\tsolo archivos / solo carpetas\n\
 path:texto\tla ruta completa contiene «texto»\n\
 regex:expr\texpresión regular\n\n\
 Las unidades de red se buscan solas. Otras carpetas de la red: menú \
-Buscar en → Agregar carpeta o unidad de red.";
+Buscar en → Agregar carpeta o unidad de red.\n\n\
+Para buscar solo en una carpeta: en el Explorador, clic derecho → «Buscar \
+aquí con Lince» (se activa en el menú Buscar en).";
 
 const CUE: &str = "Escriba para buscar…   ej.: informe    *.pdf    size:>10mb    dm:2026-10";
 const ALL_VOLUMES: &str = "Todas las unidades";
@@ -520,6 +524,7 @@ impl App {
             IDM_REFRESH => self.engine.reindex(self.current_sources()),
             IDM_ADD_FOLDER => self.add_folder(),
             IDM_CLEAR_FOLDERS => self.clear_folders(),
+            IDM_EXPLORER_MENU => self.toggle_explorer_menu(),
             IDM_HELP => message_box(self.hwnd, HELP, MB_ICONINFORMATION),
             IDM_EXIT => {
                 DestroyWindow(self.hwnd);
@@ -771,7 +776,8 @@ impl App {
         let Some(file) = self.folders_file.clone() else {
             message_box(
                 self.hwnd,
-                "Lince se abrió con carpetas fijas por línea de comandos; no se pueden agregar más.",
+                "Esta ventana busca solo en la carpeta con que se abrió. Para buscar en todas \
+                 las unidades, abra Lince desde su icono.",
                 MB_ICONINFORMATION,
             );
             return;
@@ -818,6 +824,61 @@ impl App {
             Err(e) => message_box(
                 self.hwnd,
                 &format!("No se pudo guardar la carpeta:\n{e}"),
+                MB_ICONERROR,
+            ),
+        }
+    }
+
+    /// Pone o quita «Buscar aquí con Lince» del clic derecho del Explorador.
+    unsafe fn toggle_explorer_menu(&self) {
+        let done = if explorer_menu::installed_exe().is_some() {
+            explorer_menu::uninstall().map(|()| false)
+        } else {
+            let exe = match std::env::current_exe() {
+                Ok(exe) => exe,
+                Err(e) => {
+                    message_box(
+                        self.hwnd,
+                        &format!("No se encontró Lince.exe: {e}"),
+                        MB_ICONERROR,
+                    );
+                    return;
+                }
+            };
+            if explorer_menu::is_temporary(&exe) {
+                message_box(
+                    self.hwnd,
+                    "Lince se está ejecutando desde una carpeta temporal (¿lo abrió sin sacarlo \
+                     del .zip?). Cópielo a una carpeta fija, por ejemplo Documentos\\Lince, \
+                     ábralo desde ahí y vuelva a intentarlo.",
+                    MB_ICONWARNING,
+                );
+                return;
+            }
+            explorer_menu::install(&exe).map(|()| true)
+        };
+        match done {
+            Ok(on) => {
+                let state = if on { MF_CHECKED } else { MF_UNCHECKED };
+                CheckMenuItem(
+                    GetMenu(self.hwnd),
+                    u32::from(IDM_EXPLORER_MENU),
+                    MF_BYCOMMAND | state,
+                );
+                if on {
+                    message_box(
+                        self.hwnd,
+                        "Listo. En el Explorador de archivos, haga clic derecho dentro de una \
+                         carpeta (o sobre una carpeta o una unidad) y elija «Buscar aquí con \
+                         Lince»: se abrirá una ventana que busca solo ahí.\n\n\
+                         En Windows 11 está dentro de «Mostrar más opciones».",
+                        MB_ICONINFORMATION,
+                    );
+                }
+            }
+            Err(e) => message_box(
+                self.hwnd,
+                &format!("No se pudo cambiar el menú del Explorador:\n{e}"),
                 MB_ICONERROR,
             ),
         }

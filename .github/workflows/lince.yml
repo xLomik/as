@@ -176,6 +176,57 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "codigo de salida $($p.ExitCode)" }
           Write-Host "OK: la ventana abre, muestra su titulo y cierra limpio"
 
+      - name: Clic derecho del Explorador (Buscar aqui con Lince)
+        shell: pwsh
+        run: |
+          $gui = (Resolve-Path "target\release\Lince.exe").Path
+          $base = "HKCU:\Software\Classes"
+          $marcas = @{ "Directory\Background" = "%V"; "Directory" = "%1"; "Drive" = "%1" }
+
+          $p = Start-Process -FilePath $gui -ArgumentList "--instalar-menu" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "--instalar-menu termino con $($p.ExitCode)" }
+          foreach ($k in $marcas.Keys) {
+            $cmd = (Get-Item "$base\$k\shell\Lince\command").GetValue("")
+            $quiero = "`"$gui`" --carpeta `"$($marcas[$k])`""
+            if ($cmd -ne $quiero) { throw "${k}: '$cmd' (se esperaba '$quiero')" }
+            $texto = (Get-Item "$base\$k\shell\Lince").GetValue("MUIVerb")
+            Write-Host "$k -> $texto :: $cmd"
+          }
+
+          # Lo mismo que hace el Explorador: el comando registrado con la
+          # carpeta en lugar de %V, tal cual (con sus comillas).
+          function Abrir([string]$carpeta) {
+            $cmd = (Get-Item "$base\Directory\Background\shell\Lince\command").GetValue("")
+            $resto = $cmd.Substring($cmd.IndexOf('" ') + 2).Replace("%V", $carpeta)
+            $p = Start-Process -FilePath $gui -ArgumentList $resto -PassThru
+            $deadline = (Get-Date).AddSeconds(30)
+            do { Start-Sleep -Milliseconds 500; $p.Refresh() } until ($p.MainWindowTitle -like "Lince*" -or $p.HasExited -or (Get-Date) -gt $deadline)
+            if ($p.HasExited) { throw "Lince termino solo con $carpeta (codigo $($p.ExitCode))" }
+            $titulo = $p.MainWindowTitle
+            [void]$p.CloseMainWindow()
+            if (-not $p.WaitForExit(15000)) { $p.Kill(); throw "la ventana de $carpeta no se cerro" }
+            if (-not $titulo.EndsWith(" $carpeta")) { throw "titulo '$titulo' para $carpeta" }
+            Write-Host "Ventana: $titulo"
+          }
+          $dir = Join-Path $env:RUNNER_TEMP "Carpeta del clic derecho"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Abrir $dir
+          # Raiz de unidad: llega como "C:\" y Windows la parte en C:" (comilla escrita).
+          Abrir "C:\"
+
+          # Si Lince cambia de carpeta, la entrada se corrige al abrirlo.
+          Set-Item "$base\Directory\Background\shell\Lince\command" -Value "`"C:\no-existe\Lince.exe`" --carpeta `"%V`""
+          Abrir $dir
+          $cmd = (Get-Item "$base\Directory\Background\shell\Lince\command").GetValue("")
+          if (-not $cmd.StartsWith("`"$gui`"")) { throw "no se corrigio la ruta: $cmd" }
+
+          $p = Start-Process -FilePath $gui -ArgumentList "--quitar-menu" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "--quitar-menu termino con $($p.ExitCode)" }
+          foreach ($k in $marcas.Keys) {
+            if (Test-Path "$base\$k\shell\Lince") { throw "sigue la entrada de $k" }
+          }
+          Write-Host "OK: instalar, abrir como el Explorador (carpeta con espacios y C:\), corregir ruta y quitar"
+
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:

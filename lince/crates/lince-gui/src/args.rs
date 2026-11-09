@@ -1,9 +1,12 @@
 //! Argumentos de Lince.exe. Sin argumentos se indexan todos los volúmenes
-//! NTFS; `--path`, `--volume` e `--image` eligen otras fuentes.
+//! NTFS; `--path`, `--volume` e `--image` eligen otras fuentes y
+//! `--carpeta` (la del clic derecho del Explorador) limita a una carpeta.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use lince_core::Source;
+
+use crate::explorer::{clean_shell_path, FOLDER_FLAG};
 
 /// Marca que lleva la copia de Lince relanzada con permisos de administrador,
 /// para no volver a pedirlos en bucle.
@@ -18,6 +21,16 @@ pub struct GuiArgs {
     /// El usuario eligió las fuentes (no se piden permisos de administrador).
     pub explicit_sources: bool,
     pub relaunched: bool,
+    /// Buscar solo en esta carpeta (clic derecho del Explorador).
+    pub folder: Option<PathBuf>,
+    /// Instalar o quitar el clic derecho del Explorador y salir.
+    pub menu: Option<MenuAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    Install,
+    Remove,
 }
 
 /// Interpreta los argumentos (sin el nombre del programa). Lo desconocido se
@@ -28,11 +41,19 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
         extra: Vec::new(),
         explicit_sources: false,
         relaunched: false,
+        folder: None,
+        menu: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             RELAUNCH_FLAG => out.relaunched = true,
+            "--instalar-menu" => out.menu = Some(MenuAction::Install),
+            "--quitar-menu" => out.menu = Some(MenuAction::Remove),
+            FOLDER_FLAG => {
+                let Some(v) = it.next() else { break };
+                out.folder = Some(clean_shell_path(v));
+            }
             "--extra" => {
                 let Some(v) = it.next() else { break };
                 out.extra.push(PathBuf::from(v));
@@ -52,12 +73,17 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
     out
 }
 
-/// Parámetros para relanzar Lince elevado, pasando las unidades de red.
-pub fn relaunch_params(extra: &[PathBuf]) -> String {
+/// Parámetros para relanzar Lince elevado, pasando las unidades de red y la
+/// carpeta elegida en el Explorador.
+pub fn relaunch_params(extra: &[PathBuf], folder: Option<&Path>) -> String {
     let mut out = RELAUNCH_FLAG.to_string();
     for p in extra {
         out.push_str(" --extra ");
         out.push_str(&quote_arg(&p.to_string_lossy()));
+    }
+    if let Some(f) = folder {
+        out.push_str(&format!(" {FOLDER_FLAG} "));
+        out.push_str(&quote_arg(&f.to_string_lossy()));
     }
     out
 }
@@ -159,10 +185,10 @@ mod tests {
             PathBuf::from(r"\\srv\otra cosa"),
         ];
         assert_eq!(
-            relaunch_params(&extra),
+            relaunch_params(&extra, None),
             r#"--elevado --extra \\srv\datos --extra "\\srv\otra cosa""#
         );
-        let back = parse(&split_for_test(&relaunch_params(&extra)));
+        let back = parse(&split_for_test(&relaunch_params(&extra, None)));
         assert!(back.relaunched);
         assert_eq!(back.extra, extra);
     }
@@ -184,6 +210,29 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn folder_and_explorer_menu_options() {
+        let a = parse(&["--carpeta", r"C:\Users\Ana\Mis Documentos"]);
+        assert_eq!(
+            a.folder,
+            Some(PathBuf::from(r"C:\Users\Ana\Mis Documentos"))
+        );
+        assert!(a.sources.is_empty());
+        assert_eq!(a.menu, None);
+        assert_eq!(parse(&["--instalar-menu"]).menu, Some(MenuAction::Install));
+        assert_eq!(parse(&["--quitar-menu"]).menu, Some(MenuAction::Remove));
+    }
+
+    #[test]
+    fn relaunch_parameters_keep_the_folder() {
+        let folder = PathBuf::from(r"C:\");
+        let params = relaunch_params(&[], Some(&folder));
+        assert_eq!(params, r"--elevado --carpeta C:\");
+        let back = parse(&split_for_test(&params));
+        assert!(back.relaunched);
+        assert_eq!(back.folder, Some(folder));
     }
 
     #[test]

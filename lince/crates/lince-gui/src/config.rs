@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use lince_core::Source;
 
+use crate::explorer::is_within;
+
 const HEADER: &str = "# Carpetas agregadas a Lince (una por línea)";
 
 pub fn load_folders(file: &Path) -> Vec<PathBuf> {
@@ -62,17 +64,10 @@ pub fn with_folders(base: Vec<Source>, folders: &[PathBuf]) -> Vec<Source> {
 /// Fuente que ya incluye `folder` (es la misma carpeta o la contiene), sin
 /// distinguir mayúsculas ni barra final, como Windows.
 pub fn covering_source<'a>(sources: &'a [Source], folder: &Path) -> Option<&'a Source> {
-    let folder = norm(folder);
-    sources.iter().find(|s| {
-        let root = match s {
-            Source::Path(p) => norm(p),
-            Source::Volume(_) => s.label().to_lowercase(),
-            Source::Image(_) => return false,
-        };
-        folder == root
-            || folder
-                .strip_prefix(&root)
-                .is_some_and(|rest| rest.starts_with(['\\', '/']))
+    sources.iter().find(|s| match s {
+        Source::Path(p) => is_within(folder, p),
+        Source::Volume(_) => is_within(folder, Path::new(&s.label())),
+        Source::Image(_) => false,
     })
 }
 

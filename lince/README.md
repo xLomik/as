@@ -30,6 +30,24 @@ funciona igual pero recorre las carpetas (más lento).
 La caja de búsqueda acepta la misma sintaxis que la versión de consola (tabla
 de abajo): `*.pdf`, `size:>10mb`, `dm:2026-10`, `ext:dwg;dxf`...
 
+### Buscar solo en una carpeta (clic derecho del Explorador)
+
+1. Abra Lince y active **Buscar en → «Buscar aquí con Lince» en el clic
+   derecho del Explorador** (queda con ✓; otro clic lo quita). Hágalo con
+   Lince.exe ya en su carpeta definitiva, no abierto dentro del .zip.
+2. En el Explorador de archivos, clic derecho **dentro** de una carpeta
+   («Buscar aquí con Lince»), **sobre** una carpeta («Buscar en esta carpeta
+   con Lince») o sobre una unidad («Buscar en esta unidad con Lince»).
+   En Windows 11 está en **Mostrar más opciones**.
+3. Se abre una ventana de Lince que busca **solo en esa carpeta** y sus
+   subcarpetas; el título muestra cuál. No pide permisos de administrador
+   (recorre la carpeta); en la raíz de un disco sí los pide, para leer la MFT.
+
+Se guarda solo para su usuario de Windows (no hace falta ser
+administrador). Si mueve Lince.exe a otra carpeta, la entrada se corrige
+sola la próxima vez que lo abra. Para instalarlo o quitarlo desde un script:
+`Lince.exe --instalar-menu` y `Lince.exe --quitar-menu`.
+
 ### Unidades y carpetas de red
 
 - Las **unidades de red conectadas** (Z:, P:...) se incluyen solas, también
