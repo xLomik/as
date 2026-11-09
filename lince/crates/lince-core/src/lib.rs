@@ -1,5 +1,6 @@
 //! Núcleo de Lince: índice compacto en memoria, consultas y búsqueda.
 
+pub mod content;
 mod drive;
 mod export;
 mod fold;

@@ -6,7 +6,8 @@
 //!
 //! Filtros: `ext:pdf;docx`, `size:>10mb`, `size:1kb..2mb`, `dm:2026-10`,
 //! `dm:>=2026-01-01`, `dc:` (creación), `file:`, `folder:`, `path:texto`,
-//! `regex:expresión`.
+//! `regex:expresión` y `contenido:texto` (o `content:`), que busca dentro
+//! de los archivos.
 
 use std::fmt;
 
@@ -46,6 +47,10 @@ pub struct Query {
     pub created: Option<(u64, u64)>,
     pub kind: Kind,
     pub regex: Option<Regex>,
+    /// Textos que deben estar dentro del archivo, ya preparados con
+    /// [`crate::content::needle`]. No los mira [`crate::search`]: se
+    /// comprueban después con [`crate::content::ContentScan`].
+    pub content: Vec<Vec<u8>>,
 }
 
 /// Error de sintaxis, con un mensaje para el usuario.
@@ -141,6 +146,7 @@ pub fn parse_query(text: &str) -> Result<Query, QueryError> {
         created: None,
         kind: Kind::Any,
         regex: None,
+        content: Vec::new(),
     };
     for token in tokenize(text) {
         if let Some(rest) = token.strip_prefix('!') {
@@ -181,6 +187,12 @@ pub fn parse_query(text: &str) -> Result<Query, QueryError> {
                     let mut f = Vec::new();
                     fold_into(value, &mut f);
                     q.path_terms.push(f);
+                }
+            }
+            "contenido" | "content" => {
+                let n = crate::content::needle(value);
+                if !n.is_empty() {
+                    q.content.push(n);
                 }
             }
             "regex" => {
@@ -342,6 +354,18 @@ fn next_year(y: i32) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_terms_in_spanish_and_english() {
+        let q = parse_query(r#"ext:pdf contenido:"Orden  de compra" content:FANALCA contenido:"#)
+            .unwrap();
+        assert_eq!(
+            q.content,
+            vec![b"orden de compra".to_vec(), b"fanalca".to_vec()]
+        );
+        assert!(q.terms.is_empty());
+        assert!(parse_query("informe").unwrap().content.is_empty());
+    }
 
     #[test]
     fn wildcard_basics() {

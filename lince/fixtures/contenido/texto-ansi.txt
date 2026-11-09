@@ -1,0 +1,4 @@
+Señalización del camión
+Esta es la orden de
+compra 4512.
+Marcador único: lince-ansi

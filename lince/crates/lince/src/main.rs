@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use clap::{Parser, ValueEnum};
 use lince_core::{
+    content::{content_candidates, content_threads, ContentScan},
     parse_query, search, seconds, sort_hits, thousands, write_csv, Hit, SortKey, Source,
 };
 use rayon::prelude::*;
@@ -29,6 +30,10 @@ Sintaxis de búsqueda:
   file:  folder:   solo archivos / solo carpetas
   path:texto       la ruta completa contiene «texto»
   regex:expr       expresión regular sobre el nombre
+  contenido:texto  el archivo contiene «texto» (también content:). Lee Word
+                   (.docx, .doc), Excel (.xlsx, .xls), PDF, OpenDocument y
+                   texto (.txt, .csv, .xml, .nc, .dxf...). Combínelo con
+                   ext:, path: o --path para no leer todo el disco.
 
 Códigos de salida: 0 hay resultados, 1 ninguno, 2 error.";
 
@@ -155,6 +160,19 @@ fn run(args: &Args) -> Result<usize, String> {
         .enumerate()
         .flat_map(|(s, ix)| search(ix, &query).into_iter().map(move |i| (s, i)))
         .collect();
+    if !query.content.is_empty() {
+        let candidates = content_candidates(&indexes, &hits);
+        let scan = ContentScan::new();
+        scan.run(&indexes, &candidates, &query.content, content_threads());
+        hits = scan.found();
+        if args.stats {
+            eprintln!(
+                "contenido: {} archivos revisados, {} sin poder leer",
+                thousands(scan.done() as u64),
+                thousands(scan.unreadable() as u64)
+            );
+        }
+    }
     let searched = t.elapsed();
     let key = match args.sort {
         Sort::None => None,

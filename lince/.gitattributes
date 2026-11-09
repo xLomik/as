@@ -2,3 +2,5 @@
 fixtures/*.gz binary
 fixtures/*.tsv text eol=lf
 *.sh text eol=lf
+
+fixtures/contenido/** binary
