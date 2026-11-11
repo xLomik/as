@@ -255,16 +255,25 @@ jobs:
             [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
             [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);
             [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, int flags, IntPtr extra);
+            [DllImport("shell32.dll")] public static extern bool IsUserAnAdmin();
             static void Key(byte vk, bool up) { keybd_event(vk, 0, up ? 2 : 0, IntPtr.Zero); }
             public static void Tap(byte vk) { Key(vk, false); Key(vk, true); }
             public static void CtrlAltSpace() { Key(0x11, false); Key(0x12, false); Tap(0x20); Key(0x12, true); Key(0x11, true); }
             public static void Type(string s) { foreach (char c in s.ToUpperInvariant()) Tap((byte)c); }
           }
           "@
+          function Diagnostico {
+            Write-Host "IsUserAnAdmin: $([W]::IsUserAnAdmin())"
+            Get-Process Lince -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host ("Lince pid {0} titulo '{1}' responde {2} hilos {3}" -f $_.Id, $_.MainWindowTitle, $_.Responding, $_.Threads.Count)
+            }
+            Write-Host "Ventana principal: $([W]::FindWindow('LinceVentanaPrincipal', $null))"
+            Write-Host "Barra: $([W]::FindWindow('LinceBarraRapida', $null))"
+          }
           function Esperar([scriptblock]$cond, [int]$seg, [string]$que) {
             $fin = (Get-Date).AddSeconds($seg)
             while (-not (& $cond)) {
-              if ((Get-Date) -gt $fin) { throw "no paso: $que" }
+              if ((Get-Date) -gt $fin) { Diagnostico; throw "no paso: $que" }
               Start-Sleep -Milliseconds 300
             }
           }
