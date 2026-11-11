@@ -168,7 +168,8 @@ jobs:
           $deadline = (Get-Date).AddSeconds(30)
           do { Start-Sleep -Milliseconds 500; $p.Refresh() } until ($p.MainWindowTitle -like "Lince*" -or $p.HasExited -or (Get-Date) -gt $deadline)
           if ($p.HasExited) { throw "Lince.exe termino solo (codigo $($p.ExitCode))" }
-          [void]$p.CloseMainWindow()
+          # Sin carpeta fija, cerrar la deja junto al reloj: --salir la cierra.
+          Start-Process -FilePath $gui -ArgumentList "--salir" -Wait
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "la ventana no se cerro" }
           Remove-SmbShare -Name "Lince Red" -Force
           Write-Host "OK: rutas UNC, unidades de red con letra y ventana con --extra"
@@ -241,6 +242,75 @@ jobs:
             if (Test-Path "$base\$k\shell\Lince") { throw "sigue la entrada de $k" }
           }
           Write-Host "OK: instalar, abrir como el Explorador (carpeta con espacios y C:\), corregir ruta y quitar"
+
+      - name: Segundo plano junto al reloj y barra rapida
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class W {
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);
+            [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, int flags, IntPtr extra);
+            static void Key(byte vk, bool up) { keybd_event(vk, 0, up ? 2 : 0, IntPtr.Zero); }
+            public static void Tap(byte vk) { Key(vk, false); Key(vk, true); }
+            public static void CtrlAltSpace() { Key(0x11, false); Key(0x12, false); Tap(0x20); Key(0x12, true); Key(0x11, true); }
+            public static void Type(string s) { foreach (char c in s.ToUpperInvariant()) Tap((byte)c); }
+          }
+          "@
+          function Esperar([scriptblock]$cond, [int]$seg, [string]$que) {
+            $fin = (Get-Date).AddSeconds($seg)
+            while (-not (& $cond)) {
+              if ((Get-Date) -gt $fin) { throw "no paso: $que" }
+              Start-Sleep -Milliseconds 300
+            }
+          }
+          $gui = (Resolve-Path "target\release\Lince.exe").Path
+
+          # 1) Abrir sin argumentos: la ventana que queda en segundo plano.
+          $p = Start-Process -FilePath $gui -PassThru
+          Esperar { [W]::FindWindow("LinceVentanaPrincipal", $null) -ne [IntPtr]::Zero } 30 "abrir la ventana"
+          $main = [W]::FindWindow("LinceVentanaPrincipal", $null)
+          Esperar { [W]::IsWindowVisible($main) } 30 "mostrar la ventana"
+
+          # 2) Cerrarla la esconde: el proceso (y el indice) siguen.
+          $WM_CLOSE = 0x10
+          [void][W]::SendMessage($main, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+          Esperar { -not [W]::IsWindowVisible($main) } 10 "esconder al cerrar"
+          Start-Sleep -Seconds 1
+          if ($p.HasExited) { throw "Lince termino al cerrar la ventana" }
+          Write-Host "OK: cerrar la deja junto al reloj"
+
+          # 3) Abrirlo otra vez muestra la misma copia y la nueva termina enseguida.
+          $t = Measure-Command { $q = Start-Process -FilePath $gui -PassThru -Wait }
+          if ($q.ExitCode -ne 0) { throw "la segunda copia termino con $($q.ExitCode)" }
+          Esperar { [W]::IsWindowVisible($main) } 10 "volver a mostrar la ventana"
+          Write-Host ("OK: segunda copia en {0:N2} s, la ventana reaparece" -f $t.TotalSeconds)
+          [void][W]::SendMessage($main, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+          Esperar { -not [W]::IsWindowVisible($main) } 10 "esconder otra vez"
+
+          # 4) Ctrl+Alt+Espacio abre la barra; escribir busca; Esc la esconde.
+          $bar = [W]::FindWindow("LinceBarraRapida", $null)
+          if ($bar -eq [IntPtr]::Zero) { throw "no existe la barra rapida" }
+          [W]::CtrlAltSpace()
+          Esperar { [W]::IsWindowVisible($bar) } 10 "abrir la barra con Ctrl+Alt+Espacio"
+          [W]::Type("notepad")
+          $list = [W]::FindWindowEx($bar, [IntPtr]::Zero, "SysListView32", $null)
+          # LVM_GETITEMCOUNT; espera tambien a que termine de leer C:.
+          Esperar { [int][W]::SendMessage($list, 0x1004, [IntPtr]::Zero, [IntPtr]::Zero) -gt 0 } 90 "resultados en la barra"
+          Write-Host "OK: la barra encontro $([int][W]::SendMessage($list, 0x1004, [IntPtr]::Zero, [IntPtr]::Zero)) resultados de notepad"
+          [W]::Tap(0x1B)
+          Esperar { -not [W]::IsWindowVisible($bar) } 10 "esconder la barra con Esc"
+          Write-Host "OK: Esc esconde la barra"
+
+          # 5) --salir la cierra del todo.
+          Start-Process -FilePath $gui -ArgumentList "--salir" -Wait
+          if (-not $p.WaitForExit(15000)) { $p.Kill(); throw "--salir no cerro Lince" }
+          if ($p.ExitCode -ne 0) { throw "Lince termino con $($p.ExitCode)" }
+          Write-Host "OK: --salir cierra Lince del todo"
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4

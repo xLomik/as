@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use lince_core::{SortKey, Source};
-use lince_gui::{cell_text, Column, Engine, Event, Results};
+use lince_gui::{cell_text, Client, Column, Engine, Event, Results};
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -161,6 +161,108 @@ fn each_source_appears_when_it_finishes() {
     let r = next_results(&rx);
     assert_eq!(r.hits.len(), 1);
     assert_eq!(r.indexes.len(), 2);
+}
+
+/// En segundo plano Lince vuelve a leer los discos de vez en cuando: mientras
+/// tanto se sigue buscando en el índice anterior (nunca queda vacío).
+#[test]
+fn rereading_keeps_answering_with_the_old_index() {
+    let (engine, rx) = engine_with("basico");
+    wait_indexed(&rx);
+    engine.reindex(vec![Source::Image(lince_testdata::image_file("basico"))]);
+    engine.search(1, "zorro", SortKey::Name, false, None);
+    let (mut before, mut indexed) = (false, false);
+    loop {
+        match rx.recv_timeout(WAIT).expect("sin respuesta del motor") {
+            Event::Results(r) => {
+                assert_eq!(r.hits.len(), 1);
+                assert_eq!(r.indexes.len(), 1, "índice repetido");
+                if indexed {
+                    break;
+                }
+                before = true;
+            }
+            Event::Indexed { pending: 0, .. } => indexed = true,
+            _ => {}
+        }
+    }
+    // Respondió el índice viejo sin esperar a terminar de leer.
+    assert!(before);
+}
+
+/// Fuentes que ya no se piden (carpetas quitadas) desaparecen al terminar.
+#[test]
+fn rereading_drops_sources_no_longer_wanted() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("solo-en-la-carpeta.txt"), b"x").unwrap();
+    let (engine, rx) = engine_with("basico");
+    wait_indexed(&rx);
+    let image = Source::Image(lince_testdata::image_file("basico"));
+    engine.reindex(vec![image.clone(), Source::Path(tmp.path().to_path_buf())]);
+    wait_indexed(&rx);
+    engine.search(1, "solo-en-la-carpeta", SortKey::Name, false, None);
+    let r = next_results(&rx);
+    assert_eq!((r.hits.len(), r.indexes.len()), (1, 2));
+    engine.reindex(vec![image]);
+    wait_indexed_after_results(&rx);
+    engine.search(2, "solo-en-la-carpeta", SortKey::Name, false, None);
+    let r = loop {
+        let r = next_results(&rx);
+        if r.generation == 2 {
+            break r;
+        }
+    };
+    assert_eq!((r.hits.len(), r.indexes.len()), (0, 1));
+}
+
+/// El nombre del índice puede no ser igual al de la fuente (`C:` se
+/// recorre como `C:\`, una carpeta con barra final pierde la barra): igual
+/// debe quedarse.
+#[test]
+fn a_source_whose_index_label_differs_is_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("con-barra-final.txt"), b"x").unwrap();
+    let with_slash = format!("{}{}", tmp.path().display(), std::path::MAIN_SEPARATOR);
+    let (tx, rx) = mpsc::channel();
+    let engine = Engine::start(move |ev| {
+        let _ = tx.send(ev);
+    });
+    engine.reindex(vec![Source::Path(with_slash.into())]);
+    wait_indexed(&rx);
+    engine.search(1, "con-barra-final", SortKey::Name, false, None);
+    assert_eq!(next_results(&rx).hits.len(), 1);
+}
+
+/// Como `wait_indexed`, pero admite resultados de búsquedas repetidas.
+fn wait_indexed_after_results(rx: &mpsc::Receiver<Event>) {
+    loop {
+        if let Event::Indexed { pending: 0, .. } = rx.recv_timeout(WAIT).expect("sin respuesta") {
+            return;
+        }
+    }
+}
+
+/// La barra rápida y la ventana buscan a la vez sin pisarse.
+#[test]
+fn window_and_bar_have_their_own_searches() {
+    let (engine, rx) = engine_with("basico");
+    wait_indexed(&rx);
+    engine.search_from(Client::Bar, 1, "zorro", "", SortKey::Name, false, None);
+    engine.search(1, "canción", SortKey::Name, false, None);
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        let r = next_results(&rx);
+        let name = cell_text(&r.indexes, r.hits[0], Column::Name);
+        got.push((r.client, name));
+    }
+    got.sort_by_key(|(c, _)| *c == Client::Bar);
+    assert_eq!(
+        got,
+        vec![
+            (Client::Window, "Canción ñ.txt".to_string()),
+            (Client::Bar, "🦊 zorro.txt".to_string()),
+        ]
+    );
 }
 
 mod content {

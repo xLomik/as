@@ -25,6 +25,8 @@ pub struct GuiArgs {
     pub folder: Option<PathBuf>,
     /// Instalar o quitar el clic derecho del Explorador y salir.
     pub menu: Option<MenuAction>,
+    /// Cerrar del todo la copia que está en segundo plano.
+    pub quit: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +45,7 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
         relaunched: false,
         folder: None,
         menu: None,
+        quit: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -50,6 +53,7 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
             RELAUNCH_FLAG => out.relaunched = true,
             "--instalar-menu" => out.menu = Some(MenuAction::Install),
             "--quitar-menu" => out.menu = Some(MenuAction::Remove),
+            "--salir" => out.quit = true,
             FOLDER_FLAG => {
                 let Some(v) = it.next() else { break };
                 out.folder = Some(clean_shell_path(v));
@@ -223,6 +227,12 @@ mod tests {
         assert_eq!(a.menu, None);
         assert_eq!(parse(&["--instalar-menu"]).menu, Some(MenuAction::Install));
         assert_eq!(parse(&["--quitar-menu"]).menu, Some(MenuAction::Remove));
+    }
+
+    #[test]
+    fn quit_closes_the_background_copy() {
+        assert!(parse(&["--salir"]).quit);
+        assert!(!parse(&[]).quit);
     }
 
     #[test]

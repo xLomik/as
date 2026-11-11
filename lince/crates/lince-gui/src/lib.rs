@@ -10,7 +10,7 @@ mod model;
 
 pub use args::{parse_args, quote_arg, relaunch_params, GuiArgs, MenuAction, RELAUNCH_FLAG};
 pub use config::{add_folder, covering_source, load_folders, save_folders, with_folders};
-pub use engine::{ContentStatus, Engine, Event, Indexes, Results};
+pub use engine::{Client, ContentStatus, Engine, Event, Indexes, Results};
 pub use explorer::{
     clean_shell_path, command_exe, drive_root, is_within, menu_command, MenuEntry, FOLDER_FLAG,
     MENU_ENTRIES,

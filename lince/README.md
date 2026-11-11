@@ -33,6 +33,25 @@ funciona igual pero recorre las carpetas (más lento).
 La caja de búsqueda acepta la misma sintaxis que la versión de consola (tabla
 de abajo): `*.pdf`, `size:>10mb`, `dm:2026-10`, `ext:dwg;dxf`...
 
+### Junto al reloj y barra rápida
+
+- **Cerrar la ventana no cierra Lince**: queda junto al reloj (área de
+  notificación) con todo cargado. Abrirlo de nuevo —desde el icono, el menú
+  Inicio o `Lince.exe`— es instantáneo y no vuelve a pedir permisos.
+- **Barra rápida**: clic en el icono de Lince junto al reloj, o
+  **Ctrl+Alt+Espacio** desde cualquier programa. Aparece abajo a la derecha,
+  sobre la barra de tareas: escriba y pulse **Enter** para abrir el primero
+  (o elija con las flechas); **Ctrl+Enter** abre su carpeta; **Esc** o hacer
+  clic fuera la esconde. Lo más reciente sale primero. «Abrir en Lince» pasa
+  lo escrito a la ventana completa.
+- Doble clic en el icono abre la ventana; clic derecho: buscar, abrir,
+  volver a leer los discos o **Salir de Lince** (cerrarlo del todo).
+- Si al abrirlo el índice tiene más de 15 minutos, Lince lo vuelve a leer
+  en segundo plano; mientras tanto sigue buscando en el que tenía.
+- Para scripts: `Lince.exe --salir` cierra la copia que está junto al reloj.
+- Las ventanas de una sola carpeta (clic derecho del Explorador) se cierran
+  normalmente.
+
 ### Buscar dentro de los archivos
 
 La **segunda caja** («Texto dentro del archivo») busca dentro de los

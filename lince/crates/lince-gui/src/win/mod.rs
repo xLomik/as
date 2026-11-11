@@ -2,6 +2,8 @@
 
 mod dialog;
 mod explorer_menu;
+mod instance;
+mod tray;
 mod util;
 mod window;
 
@@ -22,17 +24,17 @@ use windows_sys::Win32::UI::Controls::{
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_F5;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CheckMenuItem, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu,
-    CreateWindowExW, DispatchMessageW, GetMessageW, GetSystemMetrics, IsDialogMessageW,
-    LoadCursorW, LoadIconW, LoadImageW, RegisterClassExW, ShowWindow, TranslateAcceleratorW,
-    TranslateMessage, ACCEL, CW_USEDEFAULT, FCONTROL, FVIRTKEY, HICON, HMENU, IDC_ARROW,
-    IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MF_BYCOMMAND, MF_CHECKED, MF_POPUP, MF_SEPARATOR,
-    MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT, WNDCLASSEXW, WS_CLIPCHILDREN,
-    WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DispatchMessageW, GetAncestor, GetMessageW, GetSystemMetrics,
+    IsDialogMessageW, LoadCursorW, LoadIconW, LoadImageW, RegisterClassExW, ShowWindow,
+    TranslateAcceleratorW, TranslateMessage, ACCEL, CW_USEDEFAULT, FCONTROL, FVIRTKEY, GA_ROOT,
+    HICON, HMENU, IDC_ARROW, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MF_BYCOMMAND, MF_CHECKED,
+    MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT, WNDCLASSEXW,
+    WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 
 use util::{is_elevated, message_box, relaunch_elevated, wide};
 use window::{
-    Config, CLASS_NAME, IDM_ADD_FOLDER, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU, IDM_EXPORT,
+    Config, IDM_ADD_FOLDER, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU, IDM_EXPORT,
     IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH,
 };
 
@@ -54,8 +56,24 @@ pub fn run() {
         };
         std::process::exit(if done.is_ok() { 0 } else { 1 });
     }
+    if args.quit {
+        if let Some(running) = instance::running() {
+            instance::quit(running);
+        }
+        return;
+    }
     if let Ok(exe) = std::env::current_exe() {
         explorer_menu::repair(&exe);
+    }
+
+    // Sin argumentos Lince queda en segundo plano junto al reloj; abrirlo de
+    // nuevo muestra esa copia, ya cargada (sin volver a pedir permisos).
+    let background = args.folder.is_none() && !args.explicit_sources;
+    if background {
+        if let Some(running) = instance::running() {
+            instance::show(running);
+            return;
+        }
     }
 
     // Clic derecho del Explorador: solo esa carpeta.
@@ -139,7 +157,11 @@ pub fn run() {
             hIconSm: small,
             hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
             hbrBackground: (COLOR_BTNFACE + 1) as usize as HBRUSH,
-            lpszClassName: CLASS_NAME,
+            lpszClassName: if background {
+                instance::MAIN_CLASS
+            } else {
+                instance::FOLDER_CLASS
+            },
             ..std::mem::zeroed()
         };
         RegisterClassExW(&wc);
@@ -148,10 +170,12 @@ pub fn run() {
         let cfg = Box::into_raw(Box::new(Config {
             base_sources,
             folders_file,
+            background,
+            small_icon: small,
         }));
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT,
-            CLASS_NAME,
+            wc.lpszClassName,
             title.as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
@@ -201,11 +225,17 @@ pub fn run() {
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
-            if TranslateAcceleratorW(hwnd, haccel, &msg) != 0 {
+            // La ventana o la barra rápida a la que va el mensaje.
+            let root = if msg.hwnd.is_null() {
+                hwnd
+            } else {
+                GetAncestor(msg.hwnd, GA_ROOT)
+            };
+            if root == hwnd && TranslateAcceleratorW(hwnd, haccel, &msg) != 0 {
                 continue;
             }
             // Tab entre controles, Enter y Esc.
-            if IsDialogMessageW(hwnd, &msg) != 0 {
+            if !root.is_null() && IsDialogMessageW(root, &msg) != 0 {
                 continue;
             }
             TranslateMessage(&msg);

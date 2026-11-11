@@ -20,9 +20,26 @@ use lince_core::{parse_query, search, sort_hits, BuildStats, Built, Hit, Index, 
 /// Índices con los que se calculó un resultado.
 pub type Indexes = Arc<Vec<Arc<Index>>>;
 
+/// Quién pidió la búsqueda. Cada uno tiene su última búsqueda y su lectura
+/// de contenido: la barra rápida no cancela lo que hace la ventana.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Client {
+    Window,
+    Bar,
+}
+
+impl Client {
+    const ALL: usize = 2;
+
+    fn slot(self) -> usize {
+        self as usize
+    }
+}
+
 /// Resultado de una búsqueda. Lleva los índices con los que se calculó, así
 /// la lista se pinta bien aunque mientras tanto se reindexe.
 pub struct Results {
+    pub client: Client,
     pub generation: u64,
     pub indexes: Indexes,
     pub hits: Vec<Hit>,
@@ -60,6 +77,7 @@ pub enum Event {
 }
 
 struct SearchJob {
+    client: Client,
     generation: u64,
     query: String,
     /// Texto a buscar dentro de los archivos (caja aparte de la ventana).
@@ -75,11 +93,15 @@ enum Job {
     /// Una fuente terminó (de la tanda `epoch`).
     Built {
         epoch: u64,
+        /// Nombre de la fuente pedida (el del índice puede variar: `C:` se
+        /// recorre como `C:\`).
+        source: String,
         result: Result<Built, String>,
         warnings: Vec<String>,
     },
     /// Avance de una búsqueda dentro de los archivos.
     Content {
+        client: Client,
         generation: u64,
         indexes: Indexes,
         hits: Vec<Hit>,
@@ -132,7 +154,31 @@ impl Engine {
         desc: bool,
         volume: Option<String>,
     ) {
+        self.search_from(
+            Client::Window,
+            generation,
+            query,
+            content,
+            key,
+            desc,
+            volume,
+        );
+    }
+
+    /// Búsqueda de `client`; sus resultados llevan el mismo `client`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_from(
+        &self,
+        client: Client,
+        generation: u64,
+        query: &str,
+        content: &str,
+        key: SortKey,
+        desc: bool,
+        volume: Option<String>,
+    ) {
         let _ = self.tx.send(Job::Search(SearchJob {
+            client,
             generation,
             query: query.to_string(),
             content: content.to_string(),
@@ -150,34 +196,48 @@ struct Batch {
     pending: usize,
     stats: Vec<BuildStats>,
     warnings: Vec<String>,
+    /// Fuentes pedidas: al terminar, los índices de otras se descartan.
+    labels: Vec<String>,
 }
 
 fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
     let mut indexes: Indexes = Arc::new(Vec::new());
+    // De qué fuente es cada índice (mismo orden que `indexes`).
+    let mut owners: Vec<String> = Vec::new();
     let mut batch: Option<Batch> = None;
-    let mut last: Option<SearchJob> = None;
-    // Búsqueda en contenido en marcha y su número de búsqueda.
-    let mut scan: Option<(u64, Arc<ContentScan>)> = None;
+    let mut last: [Option<SearchJob>; Client::ALL] = Default::default();
+    // Búsqueda en contenido en marcha de cada cliente, con su número.
+    let mut scans: [Option<(u64, Arc<ContentScan>)>; Client::ALL] = Default::default();
+    let cancel = |scan: &mut Option<(u64, Arc<ContentScan>)>| {
+        if let Some((_, old)) = scan.take() {
+            old.cancel();
+        }
+    };
     while let Ok(first) = rx.recv() {
-        let mut newest = None;
+        let mut newest: [Option<SearchJob>; Client::ALL] = Default::default();
         for job in std::iter::once(first).chain(rx.try_iter()) {
             match job {
-                Job::Search(s) => newest = Some(s),
+                Job::Search(s) => {
+                    let k = s.client.slot();
+                    newest[k] = Some(s);
+                }
+                // Los índices actuales siguen respondiendo hasta que llega el
+                // nuevo de cada fuente: volver a leer nunca deja la búsqueda
+                // vacía.
                 Job::Reindex(sources) => {
-                    if let Some((_, old)) = scan.take() {
-                        old.cancel();
-                    }
+                    scans.iter_mut().for_each(cancel);
                     let epoch = batch.as_ref().map_or(1, |b| b.epoch + 1);
+                    let labels: Vec<String> = sources.iter().map(Source::label).collect();
                     notify(Event::Indexing {
-                        labels: sources.iter().map(Source::label).collect(),
+                        labels: labels.clone(),
                     });
-                    indexes = Arc::new(Vec::new());
                     batch = Some(Batch {
                         epoch,
                         started: Instant::now(),
                         pending: sources.len(),
                         stats: Vec::new(),
                         warnings: Vec::new(),
+                        labels,
                     });
                     for source in sources {
                         spawn_build(source, epoch, tx.clone());
@@ -185,6 +245,7 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                 }
                 Job::Built {
                     epoch,
+                    source,
                     result,
                     warnings,
                 } => {
@@ -193,15 +254,26 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                     };
                     b.pending -= 1;
                     b.warnings.extend(warnings);
+                    let mut next: Vec<(String, Arc<Index>)> =
+                        owners.drain(..).zip(indexes.iter().cloned()).collect();
                     match result {
                         Ok(built) => {
                             b.stats.push(built.stats);
-                            let mut next: Vec<Arc<Index>> = indexes.iter().cloned().collect();
-                            next.push(Arc::new(built.index));
-                            indexes = Arc::new(next);
+                            let new = Arc::new(built.index);
+                            match next.iter_mut().find(|(owner, _)| *owner == source) {
+                                Some((_, old)) => *old = new,
+                                None => next.push((source, new)),
+                            }
                         }
+                        // Si no se pudo leer, se queda el índice anterior.
                         Err(e) => b.warnings.push(e),
                     }
+                    if b.pending == 0 {
+                        next.retain(|(owner, _)| b.labels.contains(owner));
+                    }
+                    let (o, ix): (Vec<_>, Vec<_>) = next.into_iter().unzip();
+                    owners = o;
+                    indexes = Arc::new(ix);
                     notify(Event::Indexed {
                         entries: b.stats.iter().map(|s| s.entries).sum(),
                         elapsed: b.started.elapsed(),
@@ -209,10 +281,15 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                         warnings: b.warnings.clone(),
                         pending: b.pending,
                     });
-                    // Lo nuevo entra en la búsqueda que el usuario tiene en pantalla.
-                    newest = newest.or(last.take());
+                    // Lo nuevo entra en las búsquedas que hay en pantalla.
+                    for (n, l) in newest.iter_mut().zip(last.iter_mut()) {
+                        if n.is_none() {
+                            *n = l.take();
+                        }
+                    }
                 }
                 Job::Content {
+                    client,
                     generation,
                     indexes,
                     mut hits,
@@ -222,11 +299,15 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                     desc,
                 } => {
                     // De una búsqueda ya reemplazada: no se muestra.
-                    if scan.as_ref().is_none_or(|(g, _)| *g != generation) {
+                    if scans[client.slot()]
+                        .as_ref()
+                        .is_none_or(|(g, _)| *g != generation)
+                    {
                         continue;
                     }
                     sort_hits(&indexes, &mut hits, key, desc);
                     notify(Event::Results(Results {
+                        client,
                         generation,
                         indexes,
                         hits,
@@ -237,10 +318,9 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                 }
             }
         }
-        if let Some(s) = newest {
-            if let Some((_, old)) = scan.take() {
-                old.cancel();
-            }
+        for (k, s) in newest.into_iter().enumerate() {
+            let Some(s) = s else { continue };
+            cancel(&mut scans[k]);
             // Sin ningún índice listo todavía, la búsqueda espera.
             let waiting = indexes.is_empty() && batch.as_ref().is_none_or(|b| b.pending > 0);
             if !waiting {
@@ -261,8 +341,9 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                         ..results
                     }));
                     let new = Arc::new(ContentScan::new());
-                    scan = Some((s.generation, Arc::clone(&new)));
+                    scans[k] = Some((s.generation, Arc::clone(&new)));
                     spawn_content(ContentJob {
+                        client: s.client,
                         generation: s.generation,
                         indexes: Arc::clone(&indexes),
                         candidates,
@@ -275,13 +356,14 @@ fn run(tx: mpsc::Sender<Job>, rx: mpsc::Receiver<Job>, notify: impl Fn(Event)) {
                     });
                 }
             }
-            last = Some(s);
+            last[k] = Some(s);
         }
     }
 }
 
 /// Lo que necesita el hilo que revisa el contenido.
 struct ContentJob {
+    client: Client,
     generation: u64,
     indexes: Indexes,
     candidates: Vec<Hit>,
@@ -305,6 +387,7 @@ fn spawn_content(job: ContentJob) {
             let total = job.candidates.len();
             let send = |finished: bool| {
                 let _ = job.tx.send(Job::Content {
+                    client: job.client,
                     generation: job.generation,
                     indexes: Arc::clone(&job.indexes),
                     hits: job.scan.found(),
@@ -359,6 +442,7 @@ fn spawn_build(source: Source, epoch: u64, tx: mpsc::Sender<Job>) {
             let warnings = warnings.into_inner().unwrap_or_default();
             let _ = tx.send(Job::Built {
                 epoch,
+                source: label,
                 result,
                 warnings,
             });
@@ -367,6 +451,7 @@ fn spawn_build(source: Source, epoch: u64, tx: mpsc::Sender<Job>) {
         let _ = fail_tx.send(Job::Built {
             epoch,
             result: Err(format!("{label}: no se pudo crear un hilo: {e}")),
+            source: label,
             warnings: Vec::new(),
         });
     }
@@ -400,6 +485,7 @@ fn run_search(indexes: &Indexes, s: &SearchJob) -> (Results, Vec<Vec<u8>>) {
         }
     };
     let results = Results {
+        client: s.client,
         generation: s.generation,
         indexes: Arc::clone(indexes),
         hits,

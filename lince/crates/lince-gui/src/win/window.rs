@@ -6,6 +6,12 @@
 //! en `Cell`/`RefCell` y nunca se mantiene un préstamo durante una llamada a
 //! Windows. Los resultados se comparten con `Rc` para poder soltarlos.
 
+mod background;
+mod bar;
+
+use background::{Background, IDM_TRAY_BAR, IDM_TRAY_OPEN};
+use bar::Bar;
+
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -13,10 +19,10 @@ use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 
-use lince_core::{seconds, thousands, write_csv, Method, Source};
+use lince_core::{seconds, thousands, write_csv, Method, SortKey, Source};
 use lince_gui::{
-    add_folder, cell_text, covering_source, load_folders, save_folders, with_folders, Column,
-    Engine, Event, Results, COLUMNS,
+    add_folder, cell_text, covering_source, load_folders, save_folders, with_folders, Client,
+    Column, Engine, Event, Results, COLUMNS,
 };
 use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -50,9 +56,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     KillTimer, MoveWindow, PostMessageW, PostQuitMessage, SendMessageW, SetMenuDefaultItem,
     SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, TrackPopupMenu, BS_PUSHBUTTON,
     CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL,
-    CB_SETITEMHEIGHT, CREATESTRUCTW, EN_CHANGE, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDCANCEL,
-    IDOK, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MF_BYCOMMAND, MF_CHECKED, MF_SEPARATOR,
-    MF_STRING, MF_UNCHECKED, MINMAXINFO, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
+    CB_SETITEMHEIGHT, CREATESTRUCTW, EN_CHANGE, ES_AUTOHSCROLL, GWLP_USERDATA, HICON, HMENU,
+    IDCANCEL, IDOK, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MF_BYCOMMAND, MF_CHECKED,
+    MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MINMAXINFO, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_COMMAND,
     WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY,
     WM_SETFONT, WM_SIZE, WM_TIMER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
@@ -112,7 +118,10 @@ Explorador: leer todo un disco tarda.\n\n\
 Las unidades de red se buscan solas. Otras carpetas de la red: menú \
 Buscar en → Agregar carpeta o unidad de red.\n\n\
 Para buscar solo en una carpeta: en el Explorador, clic derecho → «Buscar \
-aquí con Lince» (se activa en el menú Buscar en).";
+aquí con Lince» (se activa en el menú Buscar en).\n\n\
+Al cerrar la ventana, Lince queda junto al reloj con todo cargado. Clic en \
+su icono (o Ctrl+Alt+Espacio) abre la barra rápida: escriba y pulse Enter. \
+Para cerrarlo del todo: Archivo → Salir, o clic derecho en el icono.";
 
 const CUE: &str = "Escriba para buscar…   ej.: informe    *.pdf    size:>10mb    dm:2026-10";
 const CONTENT_CUE: &str =
@@ -126,9 +135,11 @@ pub struct Config {
     /// Archivo de carpetas agregadas; `None` si las fuentes vienen fijas
     /// por argumentos.
     pub folders_file: Option<PathBuf>,
+    /// Queda junto al reloj al cerrarla (la copia abierta sin argumentos).
+    pub background: bool,
+    /// Icono pequeño para el área de notificación.
+    pub small_icon: HICON,
 }
-
-pub const CLASS_NAME: PCWSTR = w!("LinceVentanaPrincipal");
 
 struct App {
     hwnd: HWND,
@@ -150,6 +161,8 @@ struct App {
     results: RefCell<Option<Rc<Results>>>,
     sort: Cell<(Column, bool)>,
     icons: RefCell<HashMap<String, i32>>,
+    bar: Bar,
+    bg: Background,
 }
 
 /// Procedimiento de la ventana principal.
@@ -309,6 +322,8 @@ impl App {
             results: RefCell::new(None),
             sort: Cell::new((Column::Name, false)),
             icons: RefCell::new(HashMap::new()),
+            bar: Bar::create(hwnd),
+            bg: Background::new(cfg.background, cfg.small_icon),
         };
         app.setup_controls();
         app
@@ -366,12 +381,9 @@ impl App {
             std::mem::size_of::<SHFILEINFOW>() as u32,
             SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES,
         );
-        send(
-            self.list,
-            LVM_SETIMAGELIST,
-            LVSIL_SMALL as usize,
-            himl as isize,
-        );
+        for list in [self.list, self.bar.list] {
+            send(list, LVM_SETIMAGELIST, LVSIL_SMALL as usize, himl as isize);
+        }
 
         self.set_fonts();
         self.update_sort_arrows();
@@ -390,9 +402,13 @@ impl App {
         self.engine.reindex(self.current_sources());
         self.request_search();
         SetFocus(self.edit);
+        self.start_background();
     }
 
     unsafe fn handle(&self, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
+        if let Some(r) = self.background_message(msg, wp, lp) {
+            return Some(r);
+        }
         match msg {
             WM_SIZE => {
                 self.layout();
@@ -437,6 +453,7 @@ impl App {
                 Some(0)
             }
             WM_DESTROY => {
+                self.background_destroyed();
                 let (a, b) = self.fonts.get();
                 DeleteObject(a as HGDIOBJ);
                 DeleteObject(b as HGDIOBJ);
@@ -461,11 +478,19 @@ impl App {
         let mut big_lf = ncm.lfMessageFont;
         big_lf.lfHeight = big_lf.lfHeight * 5 / 4;
         let big = CreateFontIndirectW(&big_lf);
-        for h in [self.combo, self.export, self.list, self.status] {
+        for h in [
+            self.combo,
+            self.export,
+            self.list,
+            self.status,
+            self.bar.list,
+            self.bar.full,
+        ] {
             send(h, WM_SETFONT, normal as usize, 1);
         }
-        send(self.edit, WM_SETFONT, big as usize, 1);
-        send(self.content, WM_SETFONT, big as usize, 1);
+        for h in [self.edit, self.content, self.bar.edit] {
+            send(h, WM_SETFONT, big as usize, 1);
+        }
         let (old_a, old_b) = self.fonts.replace((normal, big));
         if !old_a.is_null() {
             DeleteObject(old_a as HGDIOBJ);
@@ -557,9 +582,9 @@ impl App {
             IDM_CLEAR_FOLDERS => self.clear_folders(),
             IDM_EXPLORER_MENU => self.toggle_explorer_menu(),
             IDM_HELP => message_box(self.hwnd, HELP, MB_ICONINFORMATION),
-            IDM_EXIT => {
-                DestroyWindow(self.hwnd);
-            }
+            IDM_EXIT => self.quit(),
+            IDM_TRAY_OPEN => self.show_window(),
+            IDM_TRAY_BAR => self.show_bar(),
             IDM_FOCUS_SEARCH => {
                 SetFocus(self.edit);
                 send(self.edit, EM_SETSEL, 0, -1);
@@ -690,6 +715,7 @@ impl App {
     unsafe fn on_event(&self, ev: Event) {
         match ev {
             Event::Indexing { labels } => {
+                self.background_indexing();
                 self.set_status(1, &format!("Indexando {}…", labels.join(", ")));
             }
             Event::Indexed {
@@ -729,6 +755,12 @@ impl App {
                     text.push_str(" · sin administrador (más lento)");
                 }
                 self.set_status(1, &text);
+                self.background_indexed(entries);
+                // Escondida junto al reloj no se interrumpe con avisos: quedan
+                // en la barra de estado.
+                if !self.window_visible() {
+                    return;
+                }
                 if stats.is_empty() {
                     message_box(
                         self.hwnd,
@@ -739,6 +771,7 @@ impl App {
                     message_box(self.hwnd, &warnings.join("\n\n"), MB_ICONWARNING);
                 }
             }
+            Event::Results(r) if r.client == Client::Bar => self.bar_results(r),
             Event::Results(r) => {
                 if r.generation < self.shown.get() {
                     return;
