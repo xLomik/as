@@ -250,8 +250,11 @@ jobs:
           using System;
           using System.Runtime.InteropServices;
           public static class W {
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string c, string t);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+            // PowerShell pasa $null como "" (titulo vacio): el null va desde aqui.
+            public static IntPtr ByClass(string c) { return FindWindow(c, null); }
+            public static IntPtr ChildByClass(IntPtr p, string c) { return FindWindowEx(p, IntPtr.Zero, c, null); }
             [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
             [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, IntPtr l);
             [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, int flags, IntPtr extra);
@@ -267,8 +270,8 @@ jobs:
             Get-Process Lince -ErrorAction SilentlyContinue | ForEach-Object {
               Write-Host ("Lince pid {0} titulo '{1}' responde {2} hilos {3}" -f $_.Id, $_.MainWindowTitle, $_.Responding, $_.Threads.Count)
             }
-            Write-Host "Ventana principal: $([W]::FindWindow('LinceVentanaPrincipal', $null))"
-            Write-Host "Barra: $([W]::FindWindow('LinceBarraRapida', $null))"
+            Write-Host "Ventana principal: $([W]::ByClass('LinceVentanaPrincipal'))"
+            Write-Host "Barra: $([W]::ByClass('LinceBarraRapida'))"
           }
           function Esperar([scriptblock]$cond, [int]$seg, [string]$que) {
             $fin = (Get-Date).AddSeconds($seg)
@@ -281,8 +284,8 @@ jobs:
 
           # 1) Abrir sin argumentos: la ventana que queda en segundo plano.
           $p = Start-Process -FilePath $gui -PassThru
-          Esperar { [W]::FindWindow("LinceVentanaPrincipal", $null) -ne [IntPtr]::Zero } 30 "abrir la ventana"
-          $main = [W]::FindWindow("LinceVentanaPrincipal", $null)
+          Esperar { [W]::ByClass("LinceVentanaPrincipal") -ne [IntPtr]::Zero } 30 "abrir la ventana"
+          $main = [W]::ByClass("LinceVentanaPrincipal")
           Esperar { [W]::IsWindowVisible($main) } 30 "mostrar la ventana"
 
           # 2) Cerrarla la esconde: el proceso (y el indice) siguen.
@@ -302,12 +305,12 @@ jobs:
           Esperar { -not [W]::IsWindowVisible($main) } 10 "esconder otra vez"
 
           # 4) Ctrl+Alt+Espacio abre la barra; escribir busca; Esc la esconde.
-          $bar = [W]::FindWindow("LinceBarraRapida", $null)
+          $bar = [W]::ByClass("LinceBarraRapida")
           if ($bar -eq [IntPtr]::Zero) { throw "no existe la barra rapida" }
           [W]::CtrlAltSpace()
           Esperar { [W]::IsWindowVisible($bar) } 10 "abrir la barra con Ctrl+Alt+Espacio"
           [W]::Type("notepad")
-          $list = [W]::FindWindowEx($bar, [IntPtr]::Zero, "SysListView32", $null)
+          $list = [W]::ChildByClass($bar, "SysListView32")
           # LVM_GETITEMCOUNT; espera tambien a que termine de leer C:.
           Esperar { [int][W]::SendMessage($list, 0x1004, [IntPtr]::Zero, [IntPtr]::Zero) -gt 0 } 90 "resultados en la barra"
           Write-Host "OK: la barra encontro $([int][W]::SendMessage($list, 0x1004, [IntPtr]::Zero, [IntPtr]::Zero)) resultados de notepad"
