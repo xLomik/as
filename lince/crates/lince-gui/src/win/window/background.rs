@@ -14,8 +14,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDBLCLK, WM_NULL,
 };
 
+use lince_protocolo::{EXE_VALUE, SETTINGS_KEY};
+use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
+use windows_sys::Win32::UI::WindowsAndMessaging::{WM_COPYDATA, WM_INITMENUPOPUP};
+
 use super::super::util::is_elevated;
-use super::super::{autostart, explorer_menu, instance, tray};
+use super::super::{autostart, explorer_menu, instance, registry, taskbar, tray};
 use super::*;
 
 pub(super) const IDM_TRAY_OPEN: u16 = 213;
@@ -87,6 +91,12 @@ impl App {
             SetTimer(self.hwnd, TIMER_TRAY, 2000, None);
         }
         PostMessageW(self.hwnd, WM_FIRST_RUN, 0, 0);
+        // La caja de la barra de tareas abre este Lince.exe si no está en marcha.
+        if let Ok(exe) = std::env::current_exe() {
+            if !explorer_menu::is_temporary(&exe) {
+                let _ = registry::set_string(SETTINGS_KEY, Some(EXE_VALUE), &exe.to_string_lossy());
+            }
+        }
         let ok = RegisterHotKey(
             self.hwnd,
             HOTKEY_BAR,
@@ -107,6 +117,14 @@ impl App {
         }
         let m = &self.bg.messages;
         match msg {
+            WM_COPYDATA => {
+                let data = &*(lp as *const COPYDATASTRUCT);
+                return Some(LRESULT::from(self.band_message(wp as HWND, data)));
+            }
+            WM_INITMENUPOPUP => {
+                self.refresh_checks(wp as HMENU);
+                return None;
+            }
             WM_CLOSE => self.hide_to_tray(),
             WM_HOTKEY if wp == HOTKEY_BAR as usize => self.toggle_bar(),
             WM_TIMER if wp == TIMER_TRAY => {
@@ -204,6 +222,20 @@ impl App {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(&marker, "Lince ya hizo las preguntas del primer uso.\r\n");
+        let exe_dir_has_dll =
+            std::env::current_exe().is_ok_and(|exe| taskbar::bundled_dll(&exe).exists());
+        if taskbar::supported()
+            && exe_dir_has_dll
+            && !taskbar::is_shown()
+            && ask_yes_no(
+                self.hwnd,
+                "¿Poner la caja «Buscar con Lince…» en la barra de tareas?\n\nQueda fija junto \
+                 a los iconos de abajo: se escribe ahí y los resultados aparecen encima. Se \
+                 puede quitar en Archivo → Caja de búsqueda en la barra de tareas.",
+            )
+        {
+            self.toggle_taskbar();
+        }
         if !autostart::is_installed()
             && ask_yes_no(
                 self.hwnd,
@@ -276,6 +308,74 @@ impl App {
             Err(e) => message_box(
                 self.hwnd,
                 &format!("No se pudo cambiar el inicio con Windows:\n{e}"),
+                MB_ICONERROR,
+            ),
+        }
+    }
+
+    /// Las casillas del menú reflejan cómo está todo ahora.
+    unsafe fn refresh_checks(&self, menu: HMENU) {
+        let check = |id: u16, on: bool| {
+            let state = if on { MF_CHECKED } else { MF_UNCHECKED };
+            CheckMenuItem(menu, u32::from(id), MF_BYCOMMAND | state);
+        };
+        check(IDM_AUTOSTART, autostart::is_installed());
+        if taskbar::supported() {
+            check(IDM_TASKBAR, taskbar::is_shown());
+        }
+    }
+
+    /// Pone o quita la caja «Buscar con Lince…» de la barra de tareas.
+    pub(super) unsafe fn toggle_taskbar(&self) {
+        if !taskbar::supported() {
+            message_box(
+                self.hwnd,
+                "Windows 11 ya no permite poner cajas en la barra de tareas. Use el icono de \
+                 Lince junto al reloj o Ctrl+Alt+Espacio.",
+                MB_ICONINFORMATION,
+            );
+            return;
+        }
+        if taskbar::is_shown() {
+            if let Err(e) = taskbar::uninstall() {
+                message_box(
+                    self.hwnd,
+                    &format!("No se pudo quitar la caja:\n{e}"),
+                    MB_ICONERROR,
+                );
+            }
+            return;
+        }
+        let exe = match std::env::current_exe() {
+            Ok(exe) if !explorer_menu::is_temporary(&exe) => exe,
+            _ => {
+                message_box(
+                    self.hwnd,
+                    "Lince se está ejecutando desde una carpeta temporal (¿lo abrió sin sacarlo \
+                     del .zip?). Saque la carpeta Lince completa del .zip, ábralo desde ahí y \
+                     vuelva a intentarlo.",
+                    MB_ICONWARNING,
+                );
+                return;
+            }
+        };
+        match taskbar::install(&exe) {
+            Ok(true) => message_box(
+                self.hwnd,
+                "Listo: la caja «Buscar con Lince…» está en la barra de tareas. Escriba ahí y \
+                 los resultados aparecen encima; Enter abre, Ctrl+Enter abre la carpeta.",
+                MB_ICONINFORMATION,
+            ),
+            Ok(false) => message_box(
+                self.hwnd,
+                "La caja quedó instalada. Si Windows pregunta si quiere mostrar «Lince» en la \
+                 barra de tareas, acepte. Si no aparece: clic derecho en la barra de tareas → \
+                 Barras de herramientas → Lince.",
+                MB_ICONINFORMATION,
+            ),
+            Err(e) => message_box(
+                self.hwnd,
+                &format!("No se pudo poner la caja en la barra de tareas:\n{e}"),
                 MB_ICONERROR,
             ),
         }

@@ -7,7 +7,7 @@ use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, ChangeWindowMessageFilterEx, FindWindowW, GetWindowThreadProcessId,
-    PostMessageW, RegisterWindowMessageW, MSGFLT_ALLOW,
+    PostMessageW, RegisterWindowMessageW, MSGFLT_ALLOW, WM_COPYDATA,
 };
 
 /// Clase de la ventana que vive en segundo plano (sin argumentos).
@@ -53,10 +53,11 @@ pub fn quit(hwnd: HWND) {
     unsafe { PostMessageW(hwnd, quit_message(), 0, 0) };
 }
 
-/// La copia elevada (administrador) acepta estos dos mensajes de una copia
-/// sin elevar; si no, Windows los bloquea.
+/// La copia elevada (administrador) acepta estos mensajes de una copia sin
+/// elevar y de la caja de la barra de tareas (que vive en el Explorador);
+/// si no, Windows los bloquea.
 pub fn accept_messages(hwnd: HWND) {
-    for m in [show_message(), quit_message()] {
+    for m in [show_message(), quit_message(), WM_COPYDATA] {
         // SAFETY: ventana propia y mensaje registrado.
         unsafe { ChangeWindowMessageFilterEx(hwnd, m, MSGFLT_ALLOW, ptr::null_mut()) };
     }

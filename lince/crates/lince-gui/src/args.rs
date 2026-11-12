@@ -32,6 +32,8 @@ pub struct GuiArgs {
     pub startup: bool,
     /// Activar o quitar el inicio con Windows y salir.
     pub autostart: Option<SetupAction>,
+    /// Poner o quitar la caja en la barra de tareas y salir.
+    pub taskbar: Option<SetupAction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +56,7 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
         quit: false,
         startup: false,
         autostart: None,
+        taskbar: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -65,6 +68,8 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
             STARTUP_FLAG => out.startup = true,
             "--instalar-inicio" => out.autostart = Some(SetupAction::Install),
             "--quitar-inicio" => out.autostart = Some(SetupAction::Remove),
+            "--instalar-barra" => out.taskbar = Some(SetupAction::Install),
+            "--quitar-barra" => out.taskbar = Some(SetupAction::Remove),
             FOLDER_FLAG => {
                 let Some(v) = it.next() else { break };
                 out.folder = Some(clean_shell_path(v));
@@ -254,6 +259,14 @@ mod tests {
             Some(SetupAction::Remove)
         );
         assert_eq!(parse(&[]).autostart, None);
+        assert_eq!(
+            parse(&["--instalar-barra"]).taskbar,
+            Some(SetupAction::Install)
+        );
+        assert_eq!(
+            parse(&["--quitar-barra"]).taskbar,
+            Some(SetupAction::Remove)
+        );
     }
 
     #[test]

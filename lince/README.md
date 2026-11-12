@@ -33,6 +33,37 @@ funciona igual pero recorre las carpetas (más lento).
 La caja de búsqueda acepta la misma sintaxis que la versión de consola (tabla
 de abajo): `*.pdf`, `size:>10mb`, `dm:2026-10`, `ext:dwg;dxf`...
 
+### Caja de búsqueda en la barra de tareas (Windows 10)
+
+**Archivo → Caja de búsqueda en la barra de tareas** pone una caja «Buscar
+con Lince…» fija en la barra de tareas, junto a los iconos. Se escribe ahí y
+los resultados aparecen justo encima, sin abrir ninguna ventana:
+**flechas** para elegir, **Enter** abre, **Ctrl+Enter** abre la carpeta,
+**Esc** cierra. Los archivos se abren como usuario normal (no con los
+permisos de administrador de Lince).
+
+- Necesita `lince_barra.dll` en la misma carpeta que `Lince.exe` (viene en
+  el .zip). Lince la copia a su carpeta del usuario y la registra solo para
+  usted: no hace falta ser administrador.
+- Si Windows pregunta si quiere mostrar «Lince» en la barra de tareas,
+  acepte. Si no aparece: clic derecho en la barra de tareas → **Barras de
+  herramientas → Lince**. Para moverla o cambiar su ancho, desbloquee la
+  barra de tareas (clic derecho → Bloquear la barra de tareas).
+- Windows 11 ya no admite cajas en la barra de tareas: ahí use el icono
+  junto al reloj o **Ctrl+Alt+Espacio**.
+- Si Lince no está en marcha, escribir en la caja lo abre.
+
+### Abrir Lince al encender el equipo
+
+**Archivo → Iniciar Lince al encender el equipo** (Lince también lo ofrece
+la primera vez). Crea una tarea en el Programador de tareas que, al iniciar
+sesión, abre Lince escondido junto al reloj, con permisos de administrador y
+sin preguntar: empieza a leer los discos enseguida y cuando vaya a buscar
+ya está listo. Funciona también con batería y no tiene límite de tiempo.
+Para activarlo hay que haber abierto Lince como administrador (aceptando la
+pregunta de Windows). Para scripts: `Lince.exe --instalar-inicio` y
+`--quitar-inicio`; para la caja, `--instalar-barra` y `--quitar-barra`.
+
 ### Junto al reloj y barra rápida
 
 - **Cerrar la ventana no cierra Lince**: queda junto al reloj (área de

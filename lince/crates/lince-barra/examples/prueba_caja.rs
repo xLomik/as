@@ -3,7 +3,11 @@
 //! «barra» falsa como sitio, escribe en la caja y comprueba que lo escrito,
 //! las teclas y el foco llegan a una ventana «Lince» falsa.
 //!
-//! Uso: `prueba_caja <ruta de lince_barra.dll>`. Sale con 0 si todo va bien.
+//! Uso: `prueba_caja <ruta de lince_barra.dll> [--lince]`. Con `--lince`
+//! habla con el Lince.exe de verdad (que debe estar abierto junto al reloj):
+//! escribe «notepad» y comprueba que los resultados aparecen encima de la
+//! caja, que la flecha mueve la elección y que Esc los esconde.
+//! Sale con 0 si todo va bien.
 
 #[cfg(not(windows))]
 fn main() {}
@@ -14,7 +18,11 @@ fn main() {
         eprintln!("FALLO: {e}");
         std::process::exit(1);
     }
-    println!("OK: la caja carga, se dibuja y habla con Lince");
+    if std::env::args().any(|a| a == "--lince") {
+        println!("OK: la caja y Lince.exe: resultados encima, flecha y Esc");
+    } else {
+        println!("OK: la caja carga, se dibuja y habla con Lince");
+    }
 }
 
 #[cfg(windows)]
@@ -30,15 +38,18 @@ mod windows_main {
     use windows::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
     use windows::Win32::System::Ole::{IObjectWithSite, IOleWindow, IOleWindow_Impl};
+    use windows::Win32::UI::Controls::{LVM_GETITEMCOUNT, LVM_GETNEXTITEM, LVNI_FOCUSED};
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
     use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_DOWN};
     use windows::Win32::UI::Shell::{
         IDeskBand, IDockingWindow, IInputObjectSite, IInputObjectSite_Impl, DBIM_ACTUAL,
         DBIM_MINSIZE, DBIM_TITLE, DESKBANDINFO,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, FindWindowExW, RegisterClassExW, SendMessageW,
-        SetWindowTextW, ShowWindow, SW_SHOW, WINDOW_EX_STYLE, WM_COPYDATA, WM_KEYDOWN, WNDCLASSEXW,
-        WS_OVERLAPPEDWINDOW,
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowExW, FindWindowW,
+        IsWindowVisible, PeekMessageW, RegisterClassExW, SendMessageW, SetWindowTextW, ShowWindow,
+        TranslateMessage, MSG, PM_REMOVE, SW_SHOW, WINDOW_EX_STYLE, WM_COPYDATA, WM_KEYDOWN,
+        WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
     };
 
     thread_local! {
@@ -111,16 +122,93 @@ mod windows_main {
         }
     }
 
+    /// Espera (atendiendo mensajes) hasta que `cond` se cumpla.
+    unsafe fn wait_for(secs: u64, what: &str, cond: impl Fn() -> bool) -> Result<(), String> {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        while !cond() {
+            if std::time::Instant::now() > end {
+                return Err(format!("no pasó: {what}"));
+            }
+            let mut msg = MSG::default();
+            while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                unsafe {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Ok(())
+    }
+
+    /// Con el Lince de verdad: resultados encima de la caja.
+    unsafe fn with_real_lince(edit: HWND) -> Result<(), String> {
+        let popup_class = wide("LinceBarraRapida");
+        let popup = unsafe { FindWindowW(PCWSTR(popup_class.as_ptr()), None) }
+            .map_err(|_| fail("Lince no está abierto junto al reloj"))?;
+        let list = unsafe { FindWindowExW(Some(popup), None, w!("SysListView32"), None) }
+            .map_err(|_| fail("la ventana de resultados no tiene lista"))?;
+        let count = || unsafe { SendMessageW(list, LVM_GETITEMCOUNT, None, None) }.0;
+        let focused = || {
+            unsafe {
+                SendMessageW(
+                    list,
+                    LVM_GETNEXTITEM,
+                    Some(WPARAM(usize::MAX)),
+                    Some(LPARAM(LVNI_FOCUSED as isize)),
+                )
+            }
+            .0
+        };
+        let text = wide("notepad");
+        unsafe { SetWindowTextW(edit, PCWSTR(text.as_ptr())) }.map_err(|e| e.to_string())?;
+        unsafe {
+            wait_for(90, "resultados encima de la caja", || {
+                IsWindowVisible(popup).as_bool() && count() > 1
+            })
+            .map_err(|e| {
+                format!(
+                    "{e} (ventana visible: {}, resultados: {})",
+                    IsWindowVisible(popup).as_bool(),
+                    count()
+                )
+            })?;
+            SendMessageW(
+                edit,
+                WM_KEYDOWN,
+                Some(WPARAM(VK_DOWN.0 as usize)),
+                Some(LPARAM(0)),
+            );
+            wait_for(5, "la flecha mueve la elección", || focused() == 1)?;
+            SendMessageW(
+                edit,
+                WM_KEYDOWN,
+                Some(WPARAM(VK_ESCAPE.0 as usize)),
+                Some(LPARAM(0)),
+            );
+            wait_for(5, "Esc esconde los resultados", || {
+                !IsWindowVisible(popup).as_bool()
+            })?;
+        }
+        println!("Lince mostró {} resultados de notepad", count());
+        Ok(())
+    }
+
     pub fn run() -> Result<(), String> {
         let dll = std::env::args()
             .nth(1)
             .ok_or_else(|| fail("falta la ruta de la DLL"))?;
+        let real = std::env::args().any(|a| a == "--lince");
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
 
             // Ventana «Lince» falsa que recibe las órdenes.
-            let main_class = wide(MAIN_CLASS);
+            let main_class = wide(if real {
+                "LinceFalsoSinUsar"
+            } else {
+                MAIN_CLASS
+            });
             let wc = WNDCLASSEXW {
                 cbSize: size_of::<WNDCLASSEXW>() as u32,
                 lpfnWndProc: Some(fake_lince),
@@ -222,6 +310,12 @@ mod windows_main {
             }
             let edit = FindWindowExW(Some(band_hwnd), None, w!("EDIT"), None)
                 .map_err(|_| fail("la caja no tiene campo de texto"))?;
+
+            if real {
+                let r = with_real_lince(edit);
+                with_site.SetSite(None).map_err(|e| e.to_string())?;
+                return r;
+            }
 
             // Escribir manda el texto; Flecha abajo, la tecla; el foco se avisa.
             let text = wide("informe ñandú");

@@ -5,6 +5,7 @@ mod dialog;
 mod explorer_menu;
 mod instance;
 mod registry;
+mod taskbar;
 mod tray;
 mod util;
 mod window;
@@ -26,18 +27,18 @@ use windows_sys::Win32::UI::Controls::{
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_F5;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CheckMenuItem, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu,
-    CreateWindowExW, DispatchMessageW, GetAncestor, GetMessageW, GetSystemMetrics,
+    CreateWindowExW, DispatchMessageW, EnableMenuItem, GetAncestor, GetMessageW, GetSystemMetrics,
     IsDialogMessageW, LoadCursorW, LoadIconW, LoadImageW, RegisterClassExW, ShowWindow,
     TranslateAcceleratorW, TranslateMessage, ACCEL, CW_USEDEFAULT, FCONTROL, FVIRTKEY, GA_ROOT,
     HICON, HMENU, IDC_ARROW, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MF_BYCOMMAND, MF_CHECKED,
-    MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT, WNDCLASSEXW,
-    WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
+    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, SW_SHOWDEFAULT,
+    WNDCLASSEXW, WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 
 use util::{is_elevated, message_box, relaunch_elevated, wide};
 use window::{
     Config, IDM_ADD_FOLDER, IDM_AUTOSTART, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU,
-    IDM_EXPORT, IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH,
+    IDM_EXPORT, IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH, IDM_TASKBAR,
 };
 
 /// Identificador del icono en `res/lince.rc`.
@@ -65,6 +66,22 @@ pub fn run() {
             }
             SetupAction::Remove => autostart::uninstall(),
         };
+        std::process::exit(if done.is_ok() { 0 } else { 1 });
+    }
+    if let Some(action) = args.taskbar {
+        // SAFETY: COM para hablar con la barra de tareas.
+        unsafe {
+            CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32);
+        }
+        let done = match action {
+            SetupAction::Install => std::env::current_exe()
+                .and_then(|exe| taskbar::install(&exe))
+                .map(|_| ()),
+            SetupAction::Remove => taskbar::uninstall(),
+        };
+        if let Err(e) = &done {
+            eprintln!("lince: {e}");
+        }
         std::process::exit(if done.is_ok() { 0 } else { 1 });
     }
     if args.quit {
@@ -315,8 +332,15 @@ fn main_menu(background: bool) -> HMENU {
         item(file, 0, "");
         if background {
             item(file, IDM_AUTOSTART, "&Iniciar Lince al encender el equipo");
-            if autostart::is_installed() {
-                CheckMenuItem(file, u32::from(IDM_AUTOSTART), MF_BYCOMMAND | MF_CHECKED);
+            if taskbar::supported() {
+                item(file, IDM_TASKBAR, "&Caja de búsqueda en la barra de tareas");
+            } else {
+                item(
+                    file,
+                    IDM_TASKBAR,
+                    "Caja en la barra de tareas (no disponible en Windows 11)",
+                );
+                EnableMenuItem(file, u32::from(IDM_TASKBAR), MF_BYCOMMAND | MF_GRAYED);
             }
             item(file, 0, "");
         }

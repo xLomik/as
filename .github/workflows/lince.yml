@@ -69,8 +69,10 @@ jobs:
       - name: Pruebas
         run: cargo test --workspace
 
-      - name: Compilar Lince.exe (ventana) y lince-cli.exe (consola)
-        run: cargo build --release -p lince -p lince-gui
+      - name: Compilar Lince.exe (ventana), lince-cli.exe (consola) y la caja de la barra de tareas
+        run: |
+          cargo build --release -p lince -p lince-gui -p lince-barra
+          cargo build --release -p lince-barra --example prueba_caja
 
       - name: Prueba real contra la MFT del volumen
         shell: pwsh
@@ -324,6 +326,81 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Lince termino con $($p.ExitCode)" }
           Write-Host "OK: --salir cierra Lince del todo"
 
+      - name: Caja en la barra de tareas (DLL como la carga el Explorador, y con Lince real)
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path "target\release\lince_barra.dll").Path
+          $prueba = (Resolve-Path "target\release\examples\prueba_caja.exe").Path
+          $gui = (Resolve-Path "target\release\Lince.exe").Path
+
+          # 1) Sitio falso y Lince falso: carga, ventana, texto, teclas y foco.
+          & $prueba $dll
+          if ($LASTEXITCODE -ne 0) { throw "la caja fallo con el Lince falso" }
+
+          # 2) Con Lince de verdad, abierto como al encender el equipo.
+          $p = Start-Process -FilePath $gui -ArgumentList "--inicio" -PassThru
+          Start-Sleep -Seconds 3
+          & $prueba $dll --lince
+          $codigo = $LASTEXITCODE
+          Start-Process -FilePath $gui -ArgumentList "--salir" -Wait
+          if (-not $p.WaitForExit(15000)) { $p.Kill() }
+          if ($codigo -ne 0) { throw "la caja fallo con Lince real" }
+
+          # 3) Registro para el usuario (sin administrador): DLL copiada y CLSID.
+          $clsid = "{E5F9334C-A814-4B74-87CD-CD761F4F70A2}"
+          $clave = "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32"
+          $q = Start-Process -FilePath $gui -ArgumentList "--instalar-barra" -PassThru
+          if (-not $q.WaitForExit(60000)) { $q.Kill(); Write-Host "AVISO: mostrar la barra no respondio (sin Explorador interactivo)" }
+          $ruta = (Get-Item $clave).GetValue("")
+          if (-not (Test-Path $ruta)) { throw "la DLL registrada no existe: $ruta" }
+          if ($ruta -notlike "$env:LOCALAPPDATA\Lince\barra\lince_barra-*.dll") { throw "DLL en lugar raro: $ruta" }
+          if ((Get-Item $clave).GetValue("ThreadingModel") -ne "Apartment") { throw "ThreadingModel" }
+          Write-Host "Registrada: $ruta (codigo $($q.ExitCode))"
+          $q = Start-Process -FilePath $gui -ArgumentList "--quitar-barra" -PassThru
+          if (-not $q.WaitForExit(60000)) { $q.Kill() }
+          if (Test-Path "HKCU:\Software\Classes\CLSID\$clsid") { throw "--quitar-barra no borro el registro" }
+          Write-Host "OK: la caja funciona con el Explorador simulado y con Lince real; se registra y se quita"
+
+      - name: Iniciar con Windows (tarea programada)
+        shell: pwsh
+        run: |
+          $gui = (Resolve-Path "target\release\Lince.exe").Path
+          $q = Start-Process -FilePath $gui -ArgumentList "--instalar-inicio" -Wait -PassThru
+          if ($q.ExitCode -ne 0) { throw "--instalar-inicio termino con $($q.ExitCode)" }
+          $xml = (schtasks /Query /TN Lince /XML ONE) -join "`n"
+          foreach ($debe in @("<Command>$gui</Command>", "<Arguments>--inicio</Arguments>",
+                              "<RunLevel>HighestAvailable</RunLevel>", "<LogonTrigger>",
+                              "<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>",
+                              "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>",
+                              "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>")) {
+            if (-not $xml.Contains($debe)) { Write-Host $xml; throw "falta en la tarea: $debe" }
+          }
+          if ((Get-ItemProperty "HKCU:\Software\Lince").InicioExe -ne $gui) { throw "no se anoto InicioExe" }
+          Write-Host "OK: tarea registrada con los ajustes correctos"
+
+          # Ejecutarla como lo hace Windows al iniciar sesion: Lince queda escondido.
+          schtasks /Run /TN Lince | Out-Null
+          $fin = (Get-Date).AddSeconds(40)
+          while (-not (Get-Process Lince -ErrorAction SilentlyContinue) -and (Get-Date) -lt $fin) { Start-Sleep -Milliseconds 500 }
+          $l = Get-Process Lince -ErrorAction SilentlyContinue
+          if ($l) {
+            Start-Sleep -Seconds 2
+            if ($l[0].MainWindowHandle -ne [IntPtr]::Zero) { throw "con --inicio la ventana no debe verse" }
+            Write-Host "OK: la tarea abrio Lince escondido junto al reloj (pid $($l[0].Id))"
+            Start-Process -FilePath $gui -ArgumentList "--salir" -Wait
+            if (-not $l[0].WaitForExit(15000)) { throw "--salir no cerro la copia de la tarea" }
+          } else {
+            schtasks /Query /TN Lince /V /FO LIST | Select-String "Estado|Status|Resultado|Result"
+            Write-Host "AVISO: la tarea no arranco aqui (el ejecutor puede no tener sesion interactiva)"
+          }
+
+          $q = Start-Process -FilePath $gui -ArgumentList "--quitar-inicio" -Wait -PassThru
+          if ($q.ExitCode -ne 0) { throw "--quitar-inicio termino con $($q.ExitCode)" }
+          schtasks /Query /TN Lince 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "la tarea sigue registrada" }
+          if ((Get-ItemProperty "HKCU:\Software\Lince" -ErrorAction SilentlyContinue).InicioExe) { throw "quedo InicioExe" }
+          Write-Host "OK: --quitar-inicio borra la tarea"
+
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
         with:
@@ -331,4 +408,5 @@ jobs:
           path: |
             lince/target/release/Lince.exe
             lince/target/release/lince-cli.exe
+            lince/target/release/lince_barra.dll
             lince/README.md

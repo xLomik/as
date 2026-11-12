@@ -1,4 +1,5 @@
-//! Lectura y escritura de textos en el registro del usuario (HKCU).
+//! Lectura y escritura de textos en el registro del usuario (HKCU), y
+//! lectura de la configuración del equipo (HKLM).
 
 use std::io;
 use std::ptr;
@@ -6,7 +7,8 @@ use std::ptr;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW, RegSetValueExW,
-    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    RRF_RT_REG_SZ,
 };
 
 use super::util::wide;
@@ -45,6 +47,15 @@ pub fn set_string(key: &str, name: Option<&str>, value: &str) -> io::Result<()> 
 
 /// Un valor de texto (`name: None`: el valor por defecto).
 pub fn get_string(key: &str, name: Option<&str>) -> Option<String> {
+    get(HKEY_CURRENT_USER, key, name)
+}
+
+/// Un valor de texto de la configuración del equipo (HKLM).
+pub fn get_machine_string(key: &str, name: &str) -> Option<String> {
+    get(HKEY_LOCAL_MACHINE, key, Some(name))
+}
+
+fn get(root: HKEY, key: &str, name: Option<&str>) -> Option<String> {
     let key = wide(key);
     let name = name.map(wide);
     let mut buf = vec![0u16; 4096];
@@ -52,7 +63,7 @@ pub fn get_string(key: &str, name: Option<&str>) -> Option<String> {
     // SAFETY: el tamaño indicado es el del buffer.
     let r = unsafe {
         RegGetValueW(
-            HKEY_CURRENT_USER,
+            root,
             key.as_ptr(),
             name.as_ref().map_or(ptr::null(), |n| n.as_ptr()),
             RRF_RT_REG_SZ,
