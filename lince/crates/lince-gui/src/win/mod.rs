@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 
 use lince_core::Source;
-use lince_gui::{drive_root, parse_args, relaunch_params, SetupAction};
+use lince_gui::{drive_root, parse_args, relaunch_params, Relaunch, SetupAction};
 use windows_sys::Win32::Graphics::Gdi::{UpdateWindow, COLOR_BTNFACE, HBRUSH};
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -105,11 +105,34 @@ pub fn run() {
     let background = args.folder.is_none() && !args.explicit_sources;
     if background {
         if let Some(running) = instance::running() {
-            // Al encender el equipo no se muestra nada: ya está junto al reloj.
-            if !args.startup {
-                instance::show(running);
+            if args.replace {
+                // Esta copia tiene permisos: la que no los tenía cede su lugar.
+                instance::quit(running);
+                instance::wait_gone(std::time::Duration::from_secs(5));
+            } else {
+                // Una copia sin permisos (se rechazó la pregunta de Windows, o
+                // la abrió la caja de la barra de tareas) no se queda para
+                // siempre: abrir Lince ofrece la que lee los discos al instante.
+                let upgrade = !args.startup
+                    && !args.relaunched
+                    && !is_elevated()
+                    && util::can_elevate()
+                    && !instance::is_elevated_copy(running);
+                if upgrade
+                    && relaunch_elevated(&relaunch_params(&Relaunch {
+                        extra: &network_shares(),
+                        replace: true,
+                        ..Default::default()
+                    }))
+                {
+                    return;
+                }
+                // Al encender el equipo no se muestra nada: ya está junto al reloj.
+                if !args.startup {
+                    instance::show(running);
+                }
+                return;
             }
-            return;
         }
     }
 
@@ -141,15 +164,18 @@ pub fn run() {
         None => !args.explicit_sources,
     };
     if wants_admin && !args.relaunched && !is_elevated() {
-        let network: Vec<PathBuf> = if args.folder.is_some() {
+        let network = if args.folder.is_some() {
             Vec::new()
         } else {
-            lince_core::remote_drives()
-                .into_iter()
-                .filter_map(|d| d.unc.map(PathBuf::from))
-                .collect()
+            network_shares()
         };
-        if relaunch_elevated(&relaunch_params(&network, args.folder.as_deref())) {
+        let params = relaunch_params(&Relaunch {
+            extra: &network,
+            folder: args.folder.as_deref(),
+            startup: args.startup,
+            replace: false,
+        });
+        if relaunch_elevated(&params) {
             return;
         }
     }
@@ -284,6 +310,15 @@ pub fn run() {
     }
 }
 
+/// Rutas reales de las unidades de red que ve esta copia (sin permisos): se
+/// le pasan a la copia con permisos, que no ve las letras.
+fn network_shares() -> Vec<PathBuf> {
+    lince_core::remote_drives()
+        .into_iter()
+        .filter_map(|d| d.unc.map(PathBuf::from))
+        .collect()
+}
+
 /// La raíz de un disco NTFS se lee por la MFT (al instante, con permisos de
 /// administrador); cualquier otra carpeta se recorre, sin pedirlos.
 fn folder_source(folder: &Path) -> Source {
@@ -297,13 +332,17 @@ fn folder_source(folder: &Path) -> Source {
 /// la copia sin elevar (sin repetir las que este proceso ya ve con letra).
 fn base_sources(extra: &[PathBuf]) -> Vec<Source> {
     let mut sources = lince_core::default_sources();
-    let seen: Vec<String> = lince_core::remote_drives()
-        .into_iter()
-        .filter_map(|d| d.unc.map(|u| u.to_lowercase()))
+    let norm = |p: &Path| p.to_string_lossy().trim_end_matches('\\').to_lowercase();
+    let seen: Vec<String> = sources
+        .iter()
+        .filter_map(|s| match s {
+            Source::Network { unc, .. } => Some(norm(unc)),
+            Source::Path(p) => Some(norm(p)),
+            _ => None,
+        })
         .collect();
     for p in extra {
-        let unc = p.to_string_lossy().to_lowercase();
-        if !seen.contains(&unc) {
+        if !seen.contains(&norm(p)) {
             sources.push(Source::Path(p.clone()));
         }
     }

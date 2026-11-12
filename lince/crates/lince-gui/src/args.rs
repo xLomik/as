@@ -12,6 +12,8 @@ use crate::startup::STARTUP_FLAG;
 /// Marca que lleva la copia de Lince relanzada con permisos de administrador,
 /// para no volver a pedirlos en bucle.
 pub const RELAUNCH_FLAG: &str = "--elevado";
+/// La copia con permisos cierra a la que no los tiene y ocupa su lugar.
+pub const REPLACE_FLAG: &str = "--reemplazar";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuiArgs {
@@ -34,6 +36,20 @@ pub struct GuiArgs {
     pub autostart: Option<SetupAction>,
     /// Poner o quitar la caja en la barra de tareas y salir.
     pub taskbar: Option<SetupAction>,
+    /// Copia con permisos que reemplaza a una sin permisos ya abierta.
+    pub replace: bool,
+}
+
+/// Lo que la copia sin permisos le pasa a la que pide permisos.
+#[derive(Debug, Clone, Default)]
+pub struct Relaunch<'a> {
+    /// Unidades de red que la copia elevada no ve (ver [`GuiArgs::extra`]).
+    pub extra: &'a [PathBuf],
+    pub folder: Option<&'a Path>,
+    /// Abrir escondida (al encender el equipo).
+    pub startup: bool,
+    /// Reemplazar a la copia sin permisos que ya está abierta.
+    pub replace: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +73,7 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
         startup: false,
         autostart: None,
         taskbar: None,
+        replace: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -65,6 +82,7 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
             "--instalar-menu" => out.menu = Some(SetupAction::Install),
             "--quitar-menu" => out.menu = Some(SetupAction::Remove),
             "--salir" => out.quit = true,
+            REPLACE_FLAG => out.replace = true,
             STARTUP_FLAG => out.startup = true,
             "--instalar-inicio" => out.autostart = Some(SetupAction::Install),
             "--quitar-inicio" => out.autostart = Some(SetupAction::Remove),
@@ -93,17 +111,22 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
     out
 }
 
-/// Parámetros para relanzar Lince elevado, pasando las unidades de red y la
-/// carpeta elegida en el Explorador.
-pub fn relaunch_params(extra: &[PathBuf], folder: Option<&Path>) -> String {
+/// Parámetros para relanzar Lince pidiendo permisos de administrador.
+pub fn relaunch_params(r: &Relaunch) -> String {
     let mut out = RELAUNCH_FLAG.to_string();
-    for p in extra {
+    for p in r.extra {
         out.push_str(" --extra ");
         out.push_str(&quote_arg(&p.to_string_lossy()));
     }
-    if let Some(f) = folder {
+    if let Some(f) = r.folder {
         out.push_str(&format!(" {FOLDER_FLAG} "));
         out.push_str(&quote_arg(&f.to_string_lossy()));
+    }
+    if r.startup {
+        out.push_str(&format!(" {STARTUP_FLAG}"));
+    }
+    if r.replace {
+        out.push_str(&format!(" {REPLACE_FLAG}"));
     }
     out
 }
@@ -205,10 +228,17 @@ mod tests {
             PathBuf::from(r"\\srv\otra cosa"),
         ];
         assert_eq!(
-            relaunch_params(&extra, None),
+            relaunch_params(&Relaunch {
+                extra: &extra,
+                ..Default::default()
+            }),
             r#"--elevado --extra \\srv\datos --extra "\\srv\otra cosa""#
         );
-        let back = parse(&split_for_test(&relaunch_params(&extra, None)));
+        let params = relaunch_params(&Relaunch {
+            extra: &extra,
+            ..Default::default()
+        });
+        let back = parse(&split_for_test(&params));
         assert!(back.relaunched);
         assert_eq!(back.extra, extra);
     }
@@ -278,11 +308,29 @@ mod tests {
     #[test]
     fn relaunch_parameters_keep_the_folder() {
         let folder = PathBuf::from(r"C:\");
-        let params = relaunch_params(&[], Some(&folder));
+        let params = relaunch_params(&Relaunch {
+            folder: Some(&folder),
+            ..Default::default()
+        });
         assert_eq!(params, r"--elevado --carpeta C:\");
         let back = parse(&split_for_test(&params));
         assert!(back.relaunched);
         assert_eq!(back.folder, Some(folder));
+    }
+
+    /// Abierta al encender el equipo sigue escondida tras pedir permisos, y
+    /// la copia con permisos puede reemplazar a una sin ellos.
+    #[test]
+    fn relaunch_keeps_startup_and_replace() {
+        let params = relaunch_params(&Relaunch {
+            startup: true,
+            replace: true,
+            ..Default::default()
+        });
+        assert_eq!(params, "--elevado --inicio --reemplazar");
+        let back = parse(&split_for_test(&params));
+        assert!(back.relaunched && back.startup && back.replace);
+        assert!(!parse(&[]).replace);
     }
 
     #[test]

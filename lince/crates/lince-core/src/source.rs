@@ -32,6 +32,20 @@ pub fn is_network_path(path: &Path) -> bool {
     }
 }
 
+/// Aviso de que un disco se recorre carpeta por carpeta porque Lince no
+/// tiene permisos de administrador.
+pub fn no_admin_warning(label: &str) -> String {
+    format!(
+        "{label}: sin permisos de administrador, se recorren sus carpetas (más lento). Para la \
+         máxima velocidad abra Lince aceptando la pregunta de Windows (permisos de \
+         administrador)."
+    )
+}
+
+pub fn is_no_admin_warning(warning: &str) -> bool {
+    warning.contains(": sin permisos de administrador, se recorren")
+}
+
 /// De dónde sale un índice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -39,6 +53,13 @@ pub enum Source {
     Volume(String),
     Image(PathBuf),
     Path(PathBuf),
+    /// Unidad de red con letra (`Z:`) y su ruta real (`\\servidor\carpeta`):
+    /// se lee por la ruta real, que también ve un proceso con permisos de
+    /// administrador (la letra no), y se muestra con la letra.
+    Network {
+        letter: String,
+        unc: PathBuf,
+    },
 }
 
 /// Cifras de cómo se construyó un índice (para `--stats`).
@@ -77,6 +98,9 @@ impl Source {
             }
             Source::Image(_) => "IMG:".to_string(),
             Source::Path(p) => p.display().to_string(),
+            Source::Network { letter, .. } => {
+                format!("{}:", letter.trim_end_matches(':').to_uppercase())
+            }
         }
     }
 
@@ -93,6 +117,21 @@ impl Source {
                 from_mft(&label, &file, None, start).map_err(|e| e.to_string())
             }
             Source::Path(path) => from_walk(&label, path.clone(), start),
+            Source::Network { unc, .. } => {
+                let (index, ws) =
+                    crate::walk_as(unc, &label, NETWORK_WALK_THREADS).map_err(|e| {
+                        format!("{label} ({}) no está disponible ahora: {e}", unc.display())
+                    })?;
+                Ok(Built {
+                    stats: BuildStats {
+                        label: label.clone(),
+                        method: Method::Walk { errors: ws.errors },
+                        entries: index.len().saturating_sub(1),
+                        elapsed: start.elapsed(),
+                    },
+                    index,
+                })
+            }
             #[cfg(windows)]
             Source::Volume(_) => match crate::Volume::open(&label) {
                 Ok(vol) => {
@@ -113,11 +152,7 @@ impl Source {
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                    warn(format!(
-                        "sin permisos de administrador para leer la MFT de {label}; se recorren \
-                         sus carpetas (mucho más lento). Abra la consola como administrador para \
-                         la máxima velocidad."
-                    ));
+                    warn(no_admin_warning(&label));
                     from_walk(&label, PathBuf::from(format!("{label}\\")), start)
                 }
                 // Unidades de red y otras que no admiten lectura cruda.
@@ -198,6 +233,49 @@ mod tests {
         assert!(is_network_path(Path::new("//servidor/datos")));
         assert!(!is_network_path(Path::new(r"C:\datos")));
         assert!(!is_network_path(Path::new("/home/datos")));
+    }
+
+    /// Una unidad de red se lee por su ruta real (la ven también los
+    /// procesos con permisos de administrador) pero se muestra con su letra.
+    #[test]
+    fn network_drives_read_the_share_and_show_the_letter() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("Planos")).unwrap();
+        std::fs::write(tmp.path().join("Planos").join("casa.dwg"), b"x").unwrap();
+        let src = Source::Network {
+            letter: "z".into(),
+            unc: tmp.path().to_path_buf(),
+        };
+        assert_eq!(src.label(), "Z:");
+        let built = src.build(&|_| {}).unwrap();
+        let ix = &built.index;
+        assert_eq!(ix.label(), "Z:");
+        let i = (0..ix.len() as u32)
+            .find(|&i| ix.name(i) == "casa.dwg")
+            .unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(ix.path(i), format!("Z:{sep}Planos{sep}casa.dwg"));
+    }
+
+    #[test]
+    fn an_unreachable_network_drive_says_so() {
+        let src = Source::Network {
+            letter: "Z:".into(),
+            unc: "/no/existe/esta/carpeta".into(),
+        };
+        let e = src.build(&|_| {}).err().unwrap();
+        assert!(
+            e.starts_with("Z: (/no/existe/esta/carpeta) no está disponible"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn no_admin_warnings_are_recognised() {
+        assert!(is_no_admin_warning(&no_admin_warning("C:")));
+        assert!(!is_no_admin_warning(
+            "Z: (\\srv\\x) no está disponible ahora"
+        ));
     }
 
     #[test]

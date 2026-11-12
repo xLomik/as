@@ -109,10 +109,21 @@ fn shell_execute(hwnd: HWND, verb: &str, file: &str, params: Option<&str>) -> bo
 /// Abre el archivo o la carpeta con su programa asociado.
 pub fn open_path(hwnd: HWND, path: &str) -> bool {
     shell_execute(hwnd, "open", path, None)
+        || network_path(path).is_some_and(|unc| shell_execute(hwnd, "open", &unc, None))
+}
+
+/// `Z:\...` con la ruta real de la unidad de red, si esta copia de Lince no
+/// ve la letra (pasa con permisos de administrador).
+fn network_path(path: &str) -> Option<String> {
+    if std::path::Path::new(path).exists() {
+        return None;
+    }
+    lince_core::unc_path(path)
 }
 
 /// Abre el Explorador en la carpeta del archivo, con el archivo seleccionado.
 pub fn show_in_folder(hwnd: HWND, path: &str) -> bool {
+    let path = network_path(path).unwrap_or_else(|| path.to_string());
     shell_execute(
         hwnd,
         "open",
@@ -193,4 +204,32 @@ pub fn relaunch_elevated(params: &str) -> bool {
         &exe.to_string_lossy(),
         Some(params),
     )
+}
+
+/// ¿El usuario es administrador con la pregunta de Windows (UAC) activa?
+/// Entonces puede dar permisos sin escribir contraseña.
+pub fn can_elevate() -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevationType, TokenElevationTypeLimited, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    // SAFETY: token propio, cerrado al final; el tamaño es el del dato.
+    unsafe {
+        let mut token = ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        let mut kind = 0i32;
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevationType,
+            (&mut kind as *mut i32).cast(),
+            std::mem::size_of::<i32>() as u32,
+            &mut len,
+        ) != 0;
+        CloseHandle(token);
+        ok && kind == TokenElevationTypeLimited
+    }
 }

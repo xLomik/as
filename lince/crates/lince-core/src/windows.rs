@@ -21,6 +21,10 @@ use windows_sys::Win32::System::Ioctl::{
     DEVICE_SEEK_PENALTY_DESCRIPTOR, IOCTL_STORAGE_QUERY_PROPERTY, STORAGE_DEVICE_DESCRIPTOR,
     STORAGE_PROPERTY_QUERY,
 };
+use windows_sys::Win32::System::Registry::{
+    RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+    RRF_RT_REG_SZ,
+};
 use windows_sys::Win32::System::Threading::CreateEventW;
 use windows_sys::Win32::System::IO::{DeviceIoControl, GetOverlappedResult, OVERLAPPED};
 
@@ -53,12 +57,15 @@ pub struct RemoteDrive {
     pub unc: Option<String>,
 }
 
-/// Unidades de red visibles para este proceso. Ojo: un proceso elevado (UAC)
-/// no ve las que el usuario conectó sin elevar.
+/// Unidades de red del usuario: las que ve este proceso y las guardadas
+/// para reconectarse al iniciar sesión (`HKCU\Network`). Un proceso con
+/// permisos de administrador no ve las letras del usuario, y al iniciar
+/// sesión pueden no estar conectadas todavía, pero las guardadas se leen
+/// siempre del registro.
 pub fn remote_drives() -> Vec<RemoteDrive> {
     // SAFETY: sin argumentos; devuelve una máscara de bits.
     let mask = unsafe { GetLogicalDrives() };
-    (0..26u8)
+    let mut out: Vec<RemoteDrive> = (0..26u8)
         .filter(|i| mask & (1 << i) != 0)
         .map(|i| format!("{}:", (b'A' + i) as char))
         .filter(|v| drive_type(v) == DRIVE_REMOTE)
@@ -66,7 +73,90 @@ pub fn remote_drives() -> Vec<RemoteDrive> {
             unc: unc_of(&letter),
             letter,
         })
-        .collect()
+        .collect();
+    for saved in saved_network_drives() {
+        match out
+            .iter_mut()
+            .find(|d| d.letter.eq_ignore_ascii_case(&saved.letter))
+        {
+            Some(d) if d.unc.is_none() => d.unc = saved.unc,
+            Some(_) => {}
+            None => out.push(saved),
+        }
+    }
+    out.sort_by(|a, b| a.letter.cmp(&b.letter));
+    out
+}
+
+/// `HKCU\Network\<letra>\RemotePath`: unidades conectadas con «Conectar de
+/// nuevo al iniciar sesión».
+fn saved_network_drives() -> Vec<RemoteDrive> {
+    let mut out = Vec::new();
+    let network = wide("Network");
+    let mut key: HKEY = ptr::null_mut();
+    // SAFETY: textos terminados en 0; la clave se cierra al final.
+    unsafe {
+        if RegOpenKeyExW(HKEY_CURRENT_USER, network.as_ptr(), 0, KEY_READ, &mut key) != 0 {
+            return out;
+        }
+        for i in 0.. {
+            let mut name = [0u16; 16];
+            let mut len = name.len() as u32;
+            let r = RegEnumKeyExW(
+                key,
+                i,
+                name.as_mut_ptr(),
+                &mut len,
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+            if r != 0 {
+                break;
+            }
+            let letter = String::from_utf16_lossy(&name[..len as usize]);
+            if letter.len() != 1 || !letter.as_bytes()[0].is_ascii_alphabetic() {
+                continue;
+            }
+            let value = wide("RemotePath");
+            let sub = wide(&letter);
+            let mut buf = [0u16; 1024];
+            let mut size = (buf.len() * 2) as u32;
+            let ok = RegGetValueW(
+                key,
+                sub.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_SZ,
+                ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            ) == 0;
+            if ok {
+                let n = (size as usize / 2).saturating_sub(1);
+                out.push(RemoteDrive {
+                    letter: format!("{}:", letter.to_ascii_uppercase()),
+                    unc: Some(String::from_utf16_lossy(&buf[..n])),
+                });
+            }
+        }
+        RegCloseKey(key);
+    }
+    out
+}
+
+/// `Z:\Planos\casa.dwg` → `\\servidor\datos\Planos\casa.dwg` si Z: es una
+/// unidad de red conocida (para abrirlo desde un proceso que no ve la letra).
+pub fn unc_path(path: &str) -> Option<String> {
+    let b = path.as_bytes();
+    if b.len() < 2 || !b[0].is_ascii_alphabetic() || b[1] != b':' {
+        return None;
+    }
+    let drive = remote_drives()
+        .into_iter()
+        .find(|d| d.letter.eq_ignore_ascii_case(&path[..2]))?;
+    let unc = drive.unc?;
+    Some(format!("{}{}", unc.trim_end_matches('\\'), &path[2..]))
 }
 
 /// ¿`path` está en una letra de unidad de red?
@@ -83,11 +173,15 @@ pub fn is_remote_drive(path: &Path) -> bool {
 /// la MFT) y las unidades de red (recorriendo sus carpetas).
 pub fn default_sources() -> Vec<Source> {
     let mut out: Vec<Source> = ntfs_volumes().into_iter().map(Source::Volume).collect();
-    out.extend(
-        remote_drives()
-            .into_iter()
-            .map(|d| Source::Path(PathBuf::from(format!("{}\\", d.letter)))),
-    );
+    out.extend(remote_drives().into_iter().map(|d| match d.unc {
+        // Por la ruta real: funciona con o sin permisos de administrador y
+        // aunque la letra no esté conectada todavía.
+        Some(unc) => Source::Network {
+            letter: d.letter,
+            unc: PathBuf::from(unc),
+        },
+        None => Source::Path(PathBuf::from(format!("{}\\", d.letter))),
+    }));
     out
 }
 

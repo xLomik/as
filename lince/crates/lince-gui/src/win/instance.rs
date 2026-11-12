@@ -2,6 +2,7 @@
 //! que ya está (con su índice cargado) en vez de volver a leer los discos.
 
 use std::ptr;
+use std::time::{Duration, Instant};
 
 use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::HWND;
@@ -60,5 +61,51 @@ pub fn accept_messages(hwnd: HWND) {
     for m in [show_message(), quit_message(), WM_COPYDATA] {
         // SAFETY: ventana propia y mensaje registrado.
         unsafe { ChangeWindowMessageFilterEx(hwnd, m, MSGFLT_ALLOW, ptr::null_mut()) };
+    }
+}
+
+/// ¿La copia abierta tiene permisos de administrador? Si no se puede saber
+/// (justo pasa cuando ella los tiene y esta no), se supone que sí.
+pub fn is_elevated_copy(hwnd: HWND) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: proceso y token se cierran; el tamaño es el del dato.
+    unsafe {
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return true;
+        }
+        let mut token = ptr::null_mut();
+        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token) != 0;
+        CloseHandle(process);
+        if !opened {
+            return true;
+        }
+        let mut info = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            (&mut info as *mut TOKEN_ELEVATION).cast(),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        ) != 0;
+        CloseHandle(token);
+        !ok || info.TokenIsElevated != 0
+    }
+}
+
+/// Espera (como mucho `limit`) a que la copia abierta termine.
+pub fn wait_gone(limit: Duration) {
+    let end = Instant::now() + limit;
+    while running().is_some() && Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(100));
     }
 }

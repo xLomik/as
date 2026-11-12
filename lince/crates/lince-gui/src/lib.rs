@@ -9,7 +9,10 @@ mod explorer;
 mod model;
 mod startup;
 
-pub use args::{parse_args, quote_arg, relaunch_params, GuiArgs, SetupAction, RELAUNCH_FLAG};
+pub use args::{
+    parse_args, quote_arg, relaunch_params, GuiArgs, Relaunch, SetupAction, RELAUNCH_FLAG,
+    REPLACE_FLAG,
+};
 pub use config::{add_folder, covering_source, load_folders, save_folders, with_folders};
 pub use engine::{Client, ContentStatus, Engine, Event, Indexes, Results};
 pub use explorer::{

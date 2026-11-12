@@ -49,17 +49,28 @@ const ROOT_ID: u32 = 0;
 /// de red cada listado espera la respuesta del servidor, así que conviene
 /// tener muchos más en vuelo que núcleos.
 pub fn walk_with_threads(root: &Path, threads: usize) -> io::Result<(Index, WalkStats)> {
+    walk_as(root, &label_for(root), threads)
+}
+
+/// Como [`walk_with_threads`], pero las rutas empiezan por `label` en vez
+/// de por `root` (una unidad de red se lee por `\\servidor\carpeta` y se
+/// muestra como `Z:`).
+pub fn walk_as(root: &Path, label: &str, threads: usize) -> io::Result<(Index, WalkStats)> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(threads.max(1))
         .thread_name(|i| format!("lince-red-{i}"))
         .build()
         .map_err(io::Error::other)?;
-    pool.install(|| walk(root))
+    pool.install(|| walk_labeled(root, label))
 }
 
 /// Recorre `root` en paralelo (una tarea de rayon por carpeta) sin seguir
 /// enlaces simbólicos ni *junctions*.
 pub fn walk(root: &Path) -> io::Result<(Index, WalkStats)> {
+    walk_labeled(root, &label_for(root))
+}
+
+fn walk_labeled(root: &Path, label: &str) -> io::Result<(Index, WalkStats)> {
     let meta = fs::metadata(root)?;
     if !meta.is_dir() {
         return Err(io::Error::new(
@@ -84,7 +95,7 @@ pub fn walk(root: &Path) -> io::Result<(Index, WalkStats)> {
     let total: usize = listings.iter().map(|l| l.entries.len()).sum();
     let ids = ctx.next_id.load(Ordering::Relaxed) as usize;
 
-    let mut b = IndexBuilder::with_capacity(&label_for(root), std::path::MAIN_SEPARATOR, total + 1);
+    let mut b = IndexBuilder::with_capacity(label, std::path::MAIN_SEPARATOR, total + 1);
     let (modified, created) = times(&meta);
     let root_idx = b.push("", NO_PARENT, FLAG_DIR | FLAG_ROOT, 0, modified, created);
     let mut dir_entry = vec![NO_PARENT; ids];

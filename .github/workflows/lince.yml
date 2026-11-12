@@ -164,6 +164,23 @@ jobs:
           }
           net use Z: /delete /y | Out-Null
 
+          # 2b) Unidad guardada para reconectarse (HKCU\Network) pero sin letra
+          #     conectada: lo que ve Lince con permisos de administrador o al
+          #     iniciar sesion. Se lee por la ruta real y se muestra con la letra.
+          New-Item -Path "HKCU:\Network\Y" -Force | Out-Null
+          Set-ItemProperty -Path "HKCU:\Network\Y" -Name RemotePath -Value $unc
+          New-Item -Path "HKCU:\Network\W" -Force | Out-Null
+          Set-ItemProperty -Path "HKCU:\Network\W" -Name RemotePath -Value "\\localhost\No Existe Lince"
+          $out = & $exe --stats marcador-lince-dos 2>&1 | ForEach-Object { "$_" }
+          $out | Write-Host
+          Remove-Item -Path "HKCU:\Network\Y", "HKCU:\Network\W" -Recurse -Force
+          if (-not ($out -match [regex]::Escape("Y:\Sub Carpeta\marcador-lince-dos ñ.bin"))) {
+            throw "la unidad guardada Y: (sin conectar) no se leyo por su ruta real"
+          }
+          if (-not ($out -match [regex]::Escape("W: (\\localhost\No Existe Lince) no está disponible ahora"))) {
+            throw "falta el aviso claro de la unidad W: que no responde"
+          }
+
           # 3) La ventana recibe la unidad de red como la recibiria tras el UAC.
           $gui = Resolve-Path "target\release\Lince.exe"
           $p = Start-Process -FilePath $gui -ArgumentList @("--elevado", "--extra", "`"$unc`"") -PassThru

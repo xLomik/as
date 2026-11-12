@@ -67,6 +67,9 @@ pub fn covering_source<'a>(sources: &'a [Source], folder: &Path) -> Option<&'a S
     sources.iter().find(|s| match s {
         Source::Path(p) => is_within(folder, p),
         Source::Volume(_) => is_within(folder, Path::new(&s.label())),
+        Source::Network { unc, .. } => {
+            is_within(folder, Path::new(&s.label())) || is_within(folder, unc)
+        }
         Source::Image(_) => false,
     })
 }
@@ -152,6 +155,17 @@ mod tests {
         let outside = PathBuf::from(r"\\srv\datos-viejos");
         assert!(covering_source(&base, &outside).is_none());
         assert!(covering_source(&base, Path::new(r"D:\x")).is_none());
+    }
+
+    #[test]
+    fn folders_inside_a_network_drive_by_letter_or_share() {
+        let base = vec![Source::Network {
+            letter: "Z:".into(),
+            unc: PathBuf::from(r"\\srv\datos"),
+        }];
+        assert!(covering_source(&base, Path::new(r"z:\Planos")).is_some());
+        assert!(covering_source(&base, Path::new(r"\\SRV\datos\Planos")).is_some());
+        assert!(covering_source(&base, Path::new(r"\\srv\otra")).is_none());
     }
 
     #[test]

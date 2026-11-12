@@ -19,7 +19,10 @@ use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 
-use lince_core::{seconds, thousands, write_csv, Method, SortKey, Source};
+use lince_core::{
+    is_network_path, is_no_admin_warning, seconds, thousands, write_csv, BuildStats, Method,
+    SortKey, Source,
+};
 use lince_gui::{
     add_folder, cell_text, covering_source, load_folders, save_folders, with_folders, Client,
     Column, Engine, Event, Results, COLUMNS,
@@ -97,6 +100,11 @@ pub const IDM_AUTOSTART: u16 = 215;
 pub const IDM_TASKBAR: u16 = 216;
 
 const TIMER_SEARCH: usize = 1;
+/// Cada cuánto se mira si volvió una unidad de red que no respondía.
+const TIMER_NET: usize = 4;
+const NET_RETRY_MS: u32 = 2 * 60 * 1000;
+/// Resultado de mirar la red (wParam 1: alguna volvió).
+const WM_NET_CHECKED: u32 = WM_APP + 5;
 /// Espera tras la última tecla antes de buscar.
 const DEBOUNCE_MS: u32 = 90;
 const CONTENT_DEBOUNCE_MS: u32 = 400;
@@ -163,6 +171,11 @@ struct App {
     results: RefCell<Option<Rc<Results>>>,
     sort: Cell<(Column, bool)>,
     icons: RefCell<HashMap<String, i32>>,
+    /// Unidades de red que no respondieron (se reintentan solas).
+    net_down: RefCell<Vec<Source>>,
+    net_checking: Cell<bool>,
+    /// El aviso de «sin permisos» ya se mostró en esta sesión.
+    admin_warned: Cell<bool>,
     bar: Bar,
     bg: Background,
 }
@@ -324,6 +337,9 @@ impl App {
             results: RefCell::new(None),
             sort: Cell::new((Column::Name, false)),
             icons: RefCell::new(HashMap::new()),
+            net_down: RefCell::new(Vec::new()),
+            net_checking: Cell::new(false),
+            admin_warned: Cell::new(false),
             bar: Bar::create(hwnd),
             bg: Background::new(cfg.background, cfg.small_icon),
         };
@@ -426,6 +442,18 @@ impl App {
             }
             WM_COMMAND => {
                 self.on_command(loword(wp), hiword(wp));
+                Some(0)
+            }
+            WM_TIMER if wp == TIMER_NET => {
+                self.check_network();
+                Some(0)
+            }
+            WM_NET_CHECKED => {
+                self.net_checking.set(false);
+                if wp == 1 {
+                    KillTimer(self.hwnd, TIMER_NET);
+                    self.engine.reindex(self.current_sources());
+                }
                 Some(0)
             }
             WM_TIMER if wp == TIMER_SEARCH => {
@@ -535,7 +563,7 @@ impl App {
         MoveWindow(self.content, pad, 2 * pad + h, edit_w, h, 1);
         let top = 3 * pad + 2 * h;
         MoveWindow(self.list, 0, top, w, (rc.bottom - top - status_h).max(0), 1);
-        let parts = [(w - self.scale(430)).max(self.scale(200)), -1];
+        let parts = [(w - self.scale(640)).max(self.scale(200)), -1];
         send(self.status, SB_SETPARTS, 2, parts.as_ptr() as isize);
     }
 
@@ -758,6 +786,20 @@ impl App {
                 if no_admin {
                     text.push_str(" · sin administrador (más lento)");
                 }
+                // Unidades de red sin respuesta (sin red, VPN, servidor
+                // apagado): se avisa abajo y se reintenta sola.
+                let down = self.unavailable_network(&stats);
+                let down_names: Vec<String> = down.iter().map(Source::label).collect();
+                if down.is_empty() {
+                    KillTimer(self.hwnd, TIMER_NET);
+                } else {
+                    text.push_str(&format!(
+                        " · {} no disponible ahora (se reintenta sola)",
+                        down_names.join(", ")
+                    ));
+                    SetTimer(self.hwnd, TIMER_NET, NET_RETRY_MS, None);
+                }
+                *self.net_down.borrow_mut() = down;
                 self.set_status(1, &text);
                 self.background_indexed(entries);
                 // Escondida junto al reloj no se interrumpe con avisos: quedan
@@ -771,8 +813,36 @@ impl App {
                         &format!("No se pudo leer ninguna unidad:\n\n{}", warnings.join("\n")),
                         MB_ICONERROR,
                     );
-                } else if !warnings.is_empty() {
-                    message_box(self.hwnd, &warnings.join("\n\n"), MB_ICONWARNING);
+                    return;
+                }
+                let mut shown: Vec<String> = Vec::new();
+                let no_admin: Vec<&str> = warnings
+                    .iter()
+                    .filter(|w| is_no_admin_warning(w))
+                    .filter_map(|w| w.split(':').next())
+                    .collect();
+                if !no_admin.is_empty() && !self.admin_warned.replace(true) {
+                    shown.push(format!(
+                        "Lince no tiene permisos de administrador: {} se recorren carpeta por \
+                         carpeta (más lento).\n\nPara la máxima velocidad, ciérrelo del todo \
+                         (clic derecho en el icono junto al reloj → Salir de Lince) y ábralo \
+                         de nuevo aceptando la pregunta de Windows.",
+                        no_admin
+                            .iter()
+                            .map(|l| format!("{l}:"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                shown.extend(
+                    warnings
+                        .iter()
+                        .filter(|w| !is_no_admin_warning(w))
+                        .filter(|w| !down_names.iter().any(|n| w.starts_with(n.as_str())))
+                        .cloned(),
+                );
+                if !shown.is_empty() {
+                    message_box(self.hwnd, &shown.join("\n\n"), MB_ICONWARNING);
                 }
             }
             Event::Results(r) if r.client == Client::Bar => self.bar_results(r),
@@ -806,6 +876,40 @@ impl App {
                 InvalidateRect(self.list, ptr::null(), 0);
                 self.set_status(0, &status);
             }
+        }
+    }
+
+    /// Unidades de red pedidas que no se pudieron leer.
+    fn unavailable_network(&self, stats: &[BuildStats]) -> Vec<Source> {
+        let read: Vec<&str> = stats.iter().map(|s| s.label.as_str()).collect();
+        self.current_sources()
+            .into_iter()
+            .filter(|s| network_root(s).is_some() && !read.contains(&s.label().as_str()))
+            .collect()
+    }
+
+    /// ¿Volvió alguna unidad de red? Se mira en otro hilo: una ruta de red
+    /// sin respuesta puede tardar mucho en fallar.
+    unsafe fn check_network(&self) {
+        if self.net_checking.replace(true) {
+            return;
+        }
+        let roots: Vec<PathBuf> = self
+            .net_down
+            .borrow()
+            .iter()
+            .filter_map(network_root)
+            .collect();
+        let target = self.hwnd as isize;
+        let spawned = std::thread::Builder::new()
+            .name("lince-mira-red".into())
+            .spawn(move || {
+                let back = roots.iter().any(|r| std::fs::read_dir(r).is_ok());
+                // SAFETY: si la ventana ya no existe, PostMessage falla sin más.
+                unsafe { PostMessageW(target as HWND, WM_NET_CHECKED, usize::from(back), 0) };
+            });
+        if spawned.is_err() {
+            self.net_checking.set(false);
         }
     }
 
@@ -1193,4 +1297,13 @@ unsafe extern "system" fn edit_proc(
         }
     }
     DefSubclassProc(hwnd, msg, wp, lp)
+}
+
+/// Carpeta de red de una fuente (`None` si no es de red).
+fn network_root(source: &Source) -> Option<PathBuf> {
+    match source {
+        Source::Network { unc, .. } => Some(unc.clone()),
+        Source::Path(p) if is_network_path(p) || lince_core::is_remote_drive(p) => Some(p.clone()),
+        _ => None,
+    }
 }
