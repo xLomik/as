@@ -365,8 +365,9 @@ jobs:
         shell: pwsh
         run: |
           $gui = (Resolve-Path "target\release\Lince.exe").Path
-          $q = Start-Process -FilePath $gui -ArgumentList "--instalar-inicio" -Wait -PassThru
-          if ($q.ExitCode -ne 0) { throw "--instalar-inicio termino con $($q.ExitCode)" }
+          $err = Join-Path $env:RUNNER_TEMP "inicio-error.txt"
+          $q = Start-Process -FilePath $gui -ArgumentList "--instalar-inicio" -Wait -PassThru -RedirectStandardError $err
+          if ($q.ExitCode -ne 0) { Get-Content $err; throw "--instalar-inicio termino con $($q.ExitCode)" }
           $xml = (schtasks /Query /TN Lince /XML ONE) -join "`n"
           foreach ($debe in @("<Command>$gui</Command>", "<Arguments>--inicio</Arguments>",
                               "<RunLevel>HighestAvailable</RunLevel>", "<LogonTrigger>",

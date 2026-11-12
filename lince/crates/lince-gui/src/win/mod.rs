@@ -66,6 +66,9 @@ pub fn run() {
             }
             SetupAction::Remove => autostart::uninstall(),
         };
+        if let Err(e) = &done {
+            eprintln!("lince: {e}");
+        }
         std::process::exit(if done.is_ok() { 0 } else { 1 });
     }
     if let Some(action) = args.taskbar {

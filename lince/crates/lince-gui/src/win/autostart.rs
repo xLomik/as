@@ -4,13 +4,11 @@
 
 use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use lince_gui::{task_xml, TASK_NAME};
-use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
 use super::explorer_menu::is_temporary;
 use super::registry::{delete_value, get_string, set_string};
@@ -55,20 +53,27 @@ pub fn install(exe: &Path) -> io::Result<()> {
             .encode_utf16()
             .flat_map(u16::to_le_bytes),
     );
-    let file = std::env::temp_dir().join(format!("lince-inicio-{}.xml", std::process::id()));
-    // Abierto sin permitir escribir ni borrar a nadie más mientras schtasks
-    // lo lee: así ningún otro programa puede cambiar qué se ejecuta con
-    // permisos de administrador.
-    let mut handle = OpenOptions::new()
+    // En la carpeta temporal de Windows, no en la del usuario: un archivo
+    // que crea ahí un proceso con permisos de administrador solo lo pueden
+    // cambiar los administradores, así ningún programa sin permisos puede
+    // cambiar qué se ejecutará. (Dejarlo abierto sin compartir no sirve:
+    // schtasks no podría leerlo.)
+    let root = std::env::var_os("SystemRoot").map(PathBuf::from);
+    let dir = root
+        .map(|r| r.join("Temp"))
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(std::env::temp_dir);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let file = dir.join(format!("lince-inicio-{}-{nanos}.xml", std::process::id()));
+    OpenOptions::new()
         .write(true)
         .create_new(true)
-        .share_mode(FILE_SHARE_READ)
-        .open(&file)?;
-    handle.write_all(&bytes)?;
-    handle.flush()?;
+        .open(&file)?
+        .write_all(&bytes)?;
     let path = file.to_string_lossy().into_owned();
     let out = schtasks(&["/Create", "/TN", TASK_NAME, "/XML", &path, "/F"]);
-    drop(handle);
     let _ = std::fs::remove_file(&file);
     let out = out?;
     if !out.status.success() {
