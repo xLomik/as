@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use lince_core::Source;
 
 use crate::explorer::{clean_shell_path, FOLDER_FLAG};
+use crate::startup::STARTUP_FLAG;
 
 /// Marca que lleva la copia de Lince relanzada con permisos de administrador,
 /// para no volver a pedirlos en bucle.
@@ -24,13 +25,18 @@ pub struct GuiArgs {
     /// Buscar solo en esta carpeta (clic derecho del Explorador).
     pub folder: Option<PathBuf>,
     /// Instalar o quitar el clic derecho del Explorador y salir.
-    pub menu: Option<MenuAction>,
+    pub menu: Option<SetupAction>,
     /// Cerrar del todo la copia que está en segundo plano.
     pub quit: bool,
+    /// Abierto por la tarea de inicio: queda escondido junto al reloj.
+    pub startup: bool,
+    /// Activar o quitar el inicio con Windows y salir.
+    pub autostart: Option<SetupAction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MenuAction {
+/// Instalar o quitar algo (clic derecho, inicio con Windows...).
+pub enum SetupAction {
     Install,
     Remove,
 }
@@ -46,14 +52,19 @@ pub fn parse_args(args: &[String]) -> GuiArgs {
         folder: None,
         menu: None,
         quit: false,
+        startup: false,
+        autostart: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             RELAUNCH_FLAG => out.relaunched = true,
-            "--instalar-menu" => out.menu = Some(MenuAction::Install),
-            "--quitar-menu" => out.menu = Some(MenuAction::Remove),
+            "--instalar-menu" => out.menu = Some(SetupAction::Install),
+            "--quitar-menu" => out.menu = Some(SetupAction::Remove),
             "--salir" => out.quit = true,
+            STARTUP_FLAG => out.startup = true,
+            "--instalar-inicio" => out.autostart = Some(SetupAction::Install),
+            "--quitar-inicio" => out.autostart = Some(SetupAction::Remove),
             FOLDER_FLAG => {
                 let Some(v) = it.next() else { break };
                 out.folder = Some(clean_shell_path(v));
@@ -225,8 +236,24 @@ mod tests {
         );
         assert!(a.sources.is_empty());
         assert_eq!(a.menu, None);
-        assert_eq!(parse(&["--instalar-menu"]).menu, Some(MenuAction::Install));
-        assert_eq!(parse(&["--quitar-menu"]).menu, Some(MenuAction::Remove));
+        assert_eq!(parse(&["--instalar-menu"]).menu, Some(SetupAction::Install));
+        assert_eq!(parse(&["--quitar-menu"]).menu, Some(SetupAction::Remove));
+    }
+
+    #[test]
+    fn startup_options() {
+        let a = parse(&["--inicio"]);
+        assert!(a.startup);
+        assert!(!a.explicit_sources);
+        assert_eq!(
+            parse(&["--instalar-inicio"]).autostart,
+            Some(SetupAction::Install)
+        );
+        assert_eq!(
+            parse(&["--quitar-inicio"]).autostart,
+            Some(SetupAction::Remove)
+        );
+        assert_eq!(parse(&[]).autostart, None);
     }
 
     #[test]

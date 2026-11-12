@@ -1,8 +1,10 @@
 //! Arranque de la ventana en Windows.
 
+mod autostart;
 mod dialog;
 mod explorer_menu;
 mod instance;
+mod registry;
 mod tray;
 mod util;
 mod window;
@@ -11,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 
 use lince_core::Source;
-use lince_gui::{drive_root, parse_args, relaunch_params, MenuAction};
+use lince_gui::{drive_root, parse_args, relaunch_params, SetupAction};
 use windows_sys::Win32::Graphics::Gdi::{UpdateWindow, COLOR_BTNFACE, HBRUSH};
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -34,8 +36,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use util::{is_elevated, message_box, relaunch_elevated, wide};
 use window::{
-    Config, IDM_ADD_FOLDER, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU, IDM_EXPORT,
-    IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH,
+    Config, IDM_ADD_FOLDER, IDM_AUTOSTART, IDM_CLEAR_FOLDERS, IDM_EXIT, IDM_EXPLORER_MENU,
+    IDM_EXPORT, IDM_FOCUS_SEARCH, IDM_HELP, IDM_REFRESH,
 };
 
 /// Identificador del icono en `res/lince.rc`.
@@ -49,10 +51,19 @@ pub fn run() {
     // funcionó.
     if let Some(action) = args.menu {
         let done = match action {
-            MenuAction::Install => {
+            SetupAction::Install => {
                 std::env::current_exe().and_then(|exe| explorer_menu::install(&exe))
             }
-            MenuAction::Remove => explorer_menu::uninstall(),
+            SetupAction::Remove => explorer_menu::uninstall(),
+        };
+        std::process::exit(if done.is_ok() { 0 } else { 1 });
+    }
+    if let Some(action) = args.autostart {
+        let done = match action {
+            SetupAction::Install => {
+                std::env::current_exe().and_then(|exe| autostart::install(&exe))
+            }
+            SetupAction::Remove => autostart::uninstall(),
         };
         std::process::exit(if done.is_ok() { 0 } else { 1 });
     }
@@ -64,6 +75,9 @@ pub fn run() {
     }
     if let Ok(exe) = std::env::current_exe() {
         explorer_menu::repair(&exe);
+        if is_elevated() {
+            autostart::repair(&exe);
+        }
     }
 
     // Sin argumentos Lince queda en segundo plano junto al reloj; abrirlo de
@@ -71,7 +85,10 @@ pub fn run() {
     let background = args.folder.is_none() && !args.explicit_sources;
     if background {
         if let Some(running) = instance::running() {
-            instance::show(running);
+            // Al encender el equipo no se muestra nada: ya está junto al reloj.
+            if !args.startup {
+                instance::show(running);
+            }
             return;
         }
     }
@@ -183,7 +200,7 @@ pub fn run() {
             1150,
             720,
             ptr::null_mut(),
-            main_menu(),
+            main_menu(background),
             hinst,
             cfg.cast(),
         );
@@ -195,8 +212,11 @@ pub fn run() {
             );
             return;
         }
-        ShowWindow(hwnd, SW_SHOWDEFAULT);
-        UpdateWindow(hwnd);
+        // La tarea de inicio lo abre escondido: solo el icono junto al reloj.
+        if !args.startup {
+            ShowWindow(hwnd, SW_SHOWDEFAULT);
+            UpdateWindow(hwnd);
+        }
 
         let ctrl = FVIRTKEY | FCONTROL;
         let accels = [
@@ -273,8 +293,9 @@ fn base_sources(extra: &[PathBuf]) -> Vec<Source> {
     sources
 }
 
-/// Barra de menú: Archivo, Buscar en, Ayuda.
-fn main_menu() -> HMENU {
+/// Barra de menú: Archivo, Buscar en, Ayuda. `background`: la copia que queda junto al reloj, con las
+/// opciones de inicio con Windows.
+fn main_menu(background: bool) -> HMENU {
     let item = |menu: HMENU, id: u16, text: &str| {
         let t = wide(text);
         // SAFETY: menú válido y texto terminado en 0 (AppendMenuW lo copia).
@@ -292,6 +313,13 @@ fn main_menu() -> HMENU {
         let file = CreatePopupMenu();
         item(file, IDM_EXPORT, "&Exportar resultados a Excel…\tCtrl+E");
         item(file, 0, "");
+        if background {
+            item(file, IDM_AUTOSTART, "&Iniciar Lince al encender el equipo");
+            if autostart::is_installed() {
+                CheckMenuItem(file, u32::from(IDM_AUTOSTART), MF_BYCOMMAND | MF_CHECKED);
+            }
+            item(file, 0, "");
+        }
         item(file, IDM_EXIT, "&Salir");
         let search_in = CreatePopupMenu();
         item(

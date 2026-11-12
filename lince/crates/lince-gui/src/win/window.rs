@@ -93,6 +93,7 @@ pub const IDM_CLEAR_FOLDERS: u16 = 209;
 pub const IDM_EXIT: u16 = 210;
 pub const IDM_HELP: u16 = 211;
 pub const IDM_EXPLORER_MENU: u16 = 212;
+pub const IDM_AUTOSTART: u16 = 215;
 
 const TIMER_SEARCH: usize = 1;
 /// Espera tras la última tecla antes de buscar.
@@ -585,6 +586,7 @@ impl App {
             IDM_EXIT => self.quit(),
             IDM_TRAY_OPEN => self.show_window(),
             IDM_TRAY_BAR => self.show_bar(),
+            IDM_AUTOSTART => self.toggle_autostart(),
             IDM_FOCUS_SEARCH => {
                 SetFocus(self.edit);
                 send(self.edit, EM_SETSEL, 0, -1);

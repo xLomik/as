@@ -14,12 +14,18 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDBLCLK, WM_NULL,
 };
 
-use super::super::{instance, tray};
+use super::super::util::is_elevated;
+use super::super::{autostart, explorer_menu, instance, tray};
 use super::*;
 
 pub(super) const IDM_TRAY_OPEN: u16 = 213;
 pub(super) const IDM_TRAY_BAR: u16 = 214;
 const HOTKEY_BAR: i32 = 1;
+/// Al encender el equipo el Explorador puede no estar listo: se reintenta
+/// poner el icono.
+const TIMER_TRAY: usize = 3;
+/// Preguntas de la primera vez, ya con la ventana a la vista.
+const WM_FIRST_RUN: u32 = WM_APP + 3;
 const HOTKEY_TEXT: &str = "Ctrl+Alt+Espacio";
 /// Al abrir Lince con un índice más viejo que esto, se vuelve a leer.
 const REFRESH_AFTER: Duration = Duration::from_secs(15 * 60);
@@ -77,6 +83,10 @@ impl App {
         self.bg
             .tray
             .set(tray::add(self.hwnd, self.bg.icon, "Lince"));
+        if !self.bg.tray.get() {
+            SetTimer(self.hwnd, TIMER_TRAY, 2000, None);
+        }
+        PostMessageW(self.hwnd, WM_FIRST_RUN, 0, 0);
         let ok = RegisterHotKey(
             self.hwnd,
             HOTKEY_BAR,
@@ -99,6 +109,13 @@ impl App {
         match msg {
             WM_CLOSE => self.hide_to_tray(),
             WM_HOTKEY if wp == HOTKEY_BAR as usize => self.toggle_bar(),
+            WM_TIMER if wp == TIMER_TRAY => {
+                if tray::add(self.hwnd, self.bg.icon, "Lince") {
+                    self.bg.tray.set(true);
+                    KillTimer(self.hwnd, TIMER_TRAY);
+                }
+            }
+            WM_FIRST_RUN => self.first_run(),
             tray::WM_TRAY => self.on_tray(lp),
             x if x == m.show => self.show_window(),
             x if x == m.quit => self.quit(),
@@ -168,6 +185,100 @@ impl App {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(&marker, "Lince ya avisó que queda en segundo plano.\r\n");
+    }
+
+    /// La primera vez que se abre (a la vista) se ofrece abrirlo solo al
+    /// encender el equipo.
+    unsafe fn first_run(&self) {
+        let Some(marker) = self
+            .folders_file
+            .as_ref()
+            .map(|f| f.with_file_name("primer-uso.txt"))
+        else {
+            return;
+        };
+        if marker.exists() || !self.window_visible() {
+            return;
+        }
+        if let Some(dir) = marker.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&marker, "Lince ya hizo las preguntas del primer uso.\r\n");
+        if !autostart::is_installed()
+            && ask_yes_no(
+                self.hwnd,
+                "¿Abrir Lince solo al encender el equipo?\n\nQuedará escondido junto al \
+                 reloj y empezará a leer los discos desde el inicio, así siempre está listo \
+                 para buscar. Se puede cambiar en Archivo → Iniciar Lince al encender el \
+                 equipo.",
+            )
+        {
+            self.toggle_autostart();
+        }
+    }
+
+    /// Activa o quita el inicio con Windows.
+    pub(super) unsafe fn toggle_autostart(&self) {
+        let installed = autostart::is_installed();
+        let done = if installed {
+            autostart::uninstall().map(|()| false)
+        } else {
+            let exe = match std::env::current_exe() {
+                Ok(exe) => exe,
+                Err(e) => {
+                    message_box(
+                        self.hwnd,
+                        &format!("No se encontró Lince.exe: {e}"),
+                        MB_ICONERROR,
+                    );
+                    return;
+                }
+            };
+            if explorer_menu::is_temporary(&exe) {
+                message_box(
+                    self.hwnd,
+                    "Lince se está ejecutando desde una carpeta temporal (¿lo abrió sin sacarlo \
+                     del .zip?). Cópielo a una carpeta fija, ábralo desde ahí y vuelva a \
+                     intentarlo.",
+                    MB_ICONWARNING,
+                );
+                return;
+            }
+            if !is_elevated() {
+                message_box(
+                    self.hwnd,
+                    "Para abrir Lince solo al encender el equipo hacen falta permisos de \
+                     administrador: ciérrelo del todo (clic derecho en el icono → Salir de \
+                     Lince), ábralo aceptando la pregunta de Windows y vuelva a intentarlo.",
+                    MB_ICONWARNING,
+                );
+                return;
+            }
+            autostart::install(&exe).map(|()| true)
+        };
+        match done {
+            Ok(on) => {
+                let state = if on { MF_CHECKED } else { MF_UNCHECKED };
+                CheckMenuItem(
+                    GetMenu(self.hwnd),
+                    u32::from(IDM_AUTOSTART),
+                    MF_BYCOMMAND | state,
+                );
+                if on {
+                    message_box(
+                        self.hwnd,
+                        "Listo. Cada vez que inicie sesión, Lince se abrirá escondido junto al \
+                         reloj y empezará a leer los discos, sin preguntar.",
+                        MB_ICONINFORMATION,
+                    );
+                }
+            }
+            Err(e) => message_box(
+                self.hwnd,
+                &format!("No se pudo cambiar el inicio con Windows:\n{e}"),
+                MB_ICONERROR,
+            ),
+        }
     }
 
     pub(super) unsafe fn show_window(&self) {
