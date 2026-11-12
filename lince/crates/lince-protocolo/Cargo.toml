@@ -1,0 +1,8 @@
+[package]
+name = "lince-protocolo"
+description = "Mensajes entre la caja de Lince en la barra de tareas y Lince.exe"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

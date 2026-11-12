@@ -5,8 +5,8 @@ use std::ptr;
 
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegGetValueW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
 };
 
 use super::util::wide;
@@ -81,6 +81,17 @@ pub fn delete_tree(key: &str) -> io::Result<()> {
     let key = wide(key);
     // SAFETY: clave terminada en 0 bajo HKCU.
     let r = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) };
+    if r == ERROR_FILE_NOT_FOUND {
+        return Ok(());
+    }
+    check(r)
+}
+
+/// Borra un valor; no existir no es un error.
+pub fn delete_value(key: &str, name: &str) -> io::Result<()> {
+    let (key, name) = (wide(key), wide(name));
+    // SAFETY: textos terminados en 0 bajo HKCU.
+    let r = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) };
     if r == ERROR_FILE_NOT_FOUND {
         return Ok(());
     }

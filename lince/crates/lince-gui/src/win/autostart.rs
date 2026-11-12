@@ -13,11 +13,11 @@ use lince_gui::{task_xml, TASK_NAME};
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
 use super::explorer_menu::is_temporary;
-use super::registry::{get_string, set_string};
+use super::registry::{delete_value, get_string, set_string};
 
-/// Dónde se anota qué Lince.exe abre la tarea (para corregirla si se mueve).
-const KEY: &str = r"Software\Lince";
-const VALUE: &str = "InicioExe";
+/// Dónde se anota qué Lince.exe abre la tarea (para corregirla si se mueve,
+/// y para que la caja de la barra de tareas sepa que puede usarla).
+use lince_protocolo::{SETTINGS_KEY as KEY, STARTUP_EXE_VALUE as VALUE};
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// `schtasks.exe` de System32 (nunca uno que esté en el PATH).
@@ -86,7 +86,7 @@ pub fn uninstall() -> io::Result<()> {
     if !out.status.success() {
         return Err(failure(&out));
     }
-    Ok(())
+    delete_value(KEY, VALUE)
 }
 
 /// Si Lince se movió de carpeta, la tarea abriría un programa que ya no

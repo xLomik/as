@@ -5,8 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Nombre de la tarea en el Programador de tareas.
-pub const TASK_NAME: &str = "Lince";
+pub use lince_protocolo::TASK_NAME;
 /// Opción con la que la tarea abre Lince: escondido, junto al reloj.
 pub const STARTUP_FLAG: &str = "--inicio";
 

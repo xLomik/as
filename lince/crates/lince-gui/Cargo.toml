@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 lince-core = { path = "../lince-core" }
+lince-protocolo = { path = "../lince-protocolo" }
 rayon = "1.12"
 
 [target.'cfg(windows)'.dependencies]
