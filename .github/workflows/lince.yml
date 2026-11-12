@@ -401,6 +401,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "la tarea sigue registrada" }
           if ((Get-ItemProperty "HKCU:\Software\Lince" -ErrorAction SilentlyContinue).InicioExe) { throw "quedo InicioExe" }
           Write-Host "OK: --quitar-inicio borra la tarea"
+          # El último programa (schtasks /Query) falló a propósito: no es el resultado del paso.
+          exit 0
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4
